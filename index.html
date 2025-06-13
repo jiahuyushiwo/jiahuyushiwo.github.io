@@ -1,0 +1,4209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>快捷购买润色发货工具 - 在线版</title>
+    <!-- LeanCloud SDK - 确保加载成功 -->
+    <script>
+    // 全局变量-标记LeanCloud是否加载成功
+    window.leancloudLoaded = false;
+    
+    // 动态加载LeanCloud SDK
+    function loadLeanCloudSDK() {
+        return new Promise((resolve, reject) => {
+            // 如果已加载过，直接返回
+            if (window.AV && window.leancloudLoaded) {
+                resolve(window.AV);
+                return;
+            }
+
+            const sdkUrls = [
+                "https://cdnjs.cloudflare.com/ajax/libs/leancloud-storage/4.15.0/av-min.js",
+                "https://cdn.jsdelivr.net/npm/leancloud-storage@4.15.0/dist/av-min.js",
+                "https://unpkg.com/leancloud-storage@4.15.0/dist/av-min.js"
+            ];
+            const timeout = 10000; // 10 seconds
+
+            let timer;
+
+            function tryLoad(urls) {
+                if (urls.length === 0) {
+                    console.error("All LeanCloud SDK CDNs failed. Falling back to offline mode.");
+                    loadFallback();
+                    return;
+                }
+
+                const url = urls[0];
+                const realScript = document.createElement('script');
+                realScript.src = url;
+                realScript.async = true;
+                
+                console.log(`Attempting to load LeanCloud SDK from ${url}`);
+                const connectionStatus = document.getElementById('connectionStatus');
+                if (connectionStatus) {
+                     connectionStatus.textContent = `正在从源 ${urls.length} 尝试连接...`;
+                }
+
+
+                timer = setTimeout(() => {
+                    console.warn(`LeanCloud SDK from ${url} timed out after ${timeout/1000}s.`);
+                    document.head.removeChild(realScript); // Clean up failed script
+                    tryLoad(urls.slice(1)); // Try next URL
+                }, timeout);
+
+                realScript.onload = function() {
+                    clearTimeout(timer);
+                    console.log(`LeanCloud SDK 加载成功 from ${url}`);
+                    window.leancloudLoaded = true;
+                    window.leancloudOfflineMode = false;
+                    resolve(window.AV);
+                };
+
+                realScript.onerror = function() {
+                    clearTimeout(timer);
+                    console.error(`LeanCloud SDK from ${url} failed to load.`);
+                    document.head.removeChild(realScript); // Clean up failed script
+                    tryLoad(urls.slice(1)); // Try next URL
+                };
+
+                document.head.appendChild(realScript);
+            }
+            
+            function loadFallback() {
+                // The original logic for creating a mock AV object
+                const script = document.createElement('script');
+                script.textContent = `
+                // AV对象模拟
+                window.AV = {
+                    init: function() { console.log('LeanCloud模拟初始化'); },
+                    User: {
+                        current: function() { return null; },
+                        logIn: function() { return Promise.reject(new Error('离线模式')); },
+                        logOut: function() { return Promise.resolve(); }
+                    },
+                    Object: {
+                        extend: function(name) {
+                            return function() { this.attributes = {}; };
+                        },
+                        destroyAll: function() { return Promise.resolve(); },
+                        createWithoutData: function() { return { set: function() {} }; }
+                    },
+                    Query: function() {
+                        return {
+                            equalTo: function() { return this; },
+                            contains: function() { return this; },
+                            limit: function() { return this; },
+                            find: function() { return Promise.resolve([]); }
+                        };
+                    },
+                    Cloud: {
+                        run: function() { return Promise.reject(new Error('离线模式')); }
+                    }
+                };
+                // 设置为离线模式
+                window.leancloudOfflineMode = true;
+                window.leancloudLoaded = true; // Still considered "loaded" but in offline mode
+                console.log('已加载LeanCloud离线模拟');
+                `;
+                document.head.appendChild(script);
+                resolve(window.AV); // Resolve with the mock object
+            }
+            
+            tryLoad(sdkUrls);
+        });
+    }
+    
+    // 全局错误处理
+    window.addEventListener('error', function(e) {
+        console.error('全局错误:', e.message);
+        // 不使用alert防止影响用户体验
+    });
+    </script>
+    <style>
+        /* 全局样式 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+            font-family: "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+            background: #f0f8ff url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIj48cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmOGZmIi8+PGcgZmlsbD0iI2UwZjBmZiIgb3BhY2l0eT0iMC40Ij48cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiLz48cmVjdCB4PSIyMCIgeT0iMCIgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIi8+PHJlY3QgeD0iNDAiIHk9IjAiIHdpZHRoPSIxMCIgaGVpZ2h0PSIxMCIvPjxyZWN0IHg9IjYwIiB5PSIwIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiLz48cmVjdCB4PSI4MCIgeT0iMCIgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIi8+PHJlY3QgeD0iMTAiIHk9IjEwIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiLz48cmVjdCB4PSIzMCIgeT0iMTAiIHdpZHRoPSIxMCIgaGVpZ2h0PSIxMCIvPjxyZWN0IHg9IjUwIiB5PSIxMCIgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIi8+PHJlY3QgeD0iNzAiIHk9IjEwIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiLz48cmVjdCB4PSI5MCIgeT0iMTAiIHdpZHRoPSIxMCIgaGVpZ2h0PSIxMCIvPjwvZz48L3N2Zz4=') repeat;
+            padding: 10px;
+            max-width: 100%;
+            margin: 0 auto;
+            color: #333;
+            overflow-x: hidden;
+        }
+        
+        /* 顶部标题区域 */
+        .header {
+            background-color: #ff7a7a;
+            color: white;
+            text-align: center;
+            padding: 15px 10px;
+            border-radius: 25px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        
+        .btn-group {
+            display: flex;
+            justify-content: space-around;
+        }
+        
+        .btn {
+            background-color: #4a7bff;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            padding: 12px 0;
+            width: 30%;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            min-height: 44px;
+        }
+        
+        .btn:active {
+            transform: scale(0.98);
+            background-color: #3a6ae6;
+        }
+        
+        /* 主要模块区域 */
+        .module {
+            margin-bottom: 15px;
+            border-radius: 20px;
+            padding: 15px;
+            position: relative;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .module-title {
+            text-align: center;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        
+        .module-number {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 30px;
+            height: 30px;
+            background-color: black;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        
+        /* 模块1：粘贴标题 */
+        .module-1 {
+            background-color: #ff5ccd;
+        }
+        
+        .title-input {
+            width: 100%;
+            height: 50px;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+        
+        .hint {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        
+        .action-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        
+        .small-btn {
+            background-color: #4a7bff;
+            color: white;
+            border: none;
+            border-radius: 15px;
+            padding: 10px 20px;
+            font-size: 14px;
+            cursor: pointer;
+            min-height: 40px;
+            min-width: 80px;
+        }
+        
+        .small-btn:active {
+            transform: scale(0.98);
+        }
+        
+        /* 模块2：复制购买链接 */
+        .module-2 {
+            background-color: #c8ff5c;
+        }
+        
+        .links-container {
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+            padding: 5px;
+        }
+        
+        .link-item {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+            background-color: #e9e9e9;
+            border-radius: 5px;
+            margin-bottom: 5px;
+            user-select: none;
+        }
+        
+        .link-item.selected {
+            background-color: #ff3333; /* 红色 */
+        }
+        
+        .link-title {
+            font-weight: bold;
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .link-url {
+            color: #666;
+            font-size: 12px;
+            word-break: break-all;
+        }
+        
+        /* 模块3：润色发货 */
+        .module-3 {
+            background-color: #5cecff;
+        }
+        
+        .polish-container {
+            background-color: white;
+            border: 2px solid #7b3a96;
+            border-radius: 10px;
+            height: 150px;
+            overflow-y: auto;
+            padding: 15px;
+            font-size: 14px;
+            position: relative;
+            margin-right: 70px;
+        }
+        
+        .button-group {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .circle-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background-color: #ffd700;
+            color: #333;
+            border: none;
+            font-weight: bold;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        
+        .circle-btn:active {
+            transform: scale(0.95);
+        }
+        
+        /* 模块3.5：快速启动应用 */
+        .module-quick-launch {
+            background-color: #9c88ff;
+            margin-bottom: 15px;
+        }
+        
+        .quick-launch-container {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 15px;
+            padding: 10px 0;
+        }
+        
+        .app-icons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            flex-grow: 1;
+        }
+        
+        .app-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 15px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #fff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            position: relative;
+        }
+        
+        .app-icon img {
+            max-width: 100%;
+            max-height: 100%;
+        }
+        
+        .app-icon .remove-btn {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            width: 20px;
+            height: 20px;
+            background-color: red;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            cursor: pointer;
+            border: 1px solid white;
+        }
+        
+        /* 模块4：总目录 */
+        .module-4 {
+            background-color: #ff9e7a;
+        }
+        
+        .directory-title {
+            margin-bottom: 15px;
+        }
+        
+        .directory-container {
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 5px;
+        }
+        
+        .directory-item {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 8px;
+            user-select: none;
+        }
+        
+        .directory-item.recorded {
+            background-color: #6b8e23; /* 橄榄绿 */
+            color: white;
+        }
+        
+        .directory-item.not-recorded {
+            background-color: #666; /* 深灰色 */
+            color: white;
+        }
+        
+        .directory-item.selected {
+            background-color: #ff3333; /* 红色 */
+        }
+        
+        .directory-title-text {
+            font-weight: bold;
+            font-size: 14px;
+            margin-bottom: 5px;
+            word-break: break-word;
+        }
+        
+        .directory-link {
+            font-size: 12px;
+            margin-bottom: 5px;
+            word-break: break-all;
+        }
+        
+        .directory-status {
+            text-align: right;
+            font-size: 12px;
+            font-style: italic;
+        }
+        
+        /* 对话框样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-content {
+            background-color: white;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 400px;
+            padding: 20px;
+        }
+        
+        .modal-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .modal-body {
+            margin-bottom: 20px;
+        }
+        
+        .modal-footer {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+        }
+        
+        /* 消息提示 */
+        .toast {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            z-index: 1000;
+            display: none;
+        }
+        
+        /* 响应式调整 */
+        @media (max-width: 360px) {
+            body {
+                padding: 5px;
+            }
+            
+            .header h1 {
+                font-size: 20px;
+            }
+            
+            .btn, .small-btn {
+                font-size: 14px;
+            }
+            
+            .module-title {
+                font-size: 18px;
+            }
+        }
+        
+        /* 开发模式面板 */
+        .dev-panel {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: rgba(0,0,0,0.8);
+            color: white;
+            padding: 10px;
+            z-index: 999;
+            font-size: 12px;
+            max-height: 30vh;
+            overflow-y: auto;
+        }
+        
+        /* 加载指示器 */
+        .loader {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255,255,255,0.8);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- 顶部标题区域 -->
+    <div class="header">
+        <h1>快捷购买润色发货</h1>
+        <div style="color: yellow; background-color: rgba(0,0,0,0.2); padding: 5px; border-radius: 10px; margin-bottom: 10px;">
+            在线版 - 数据存储在云端，多设备可同步
+        </div>
+        <div id="userInfoBar" style="margin-bottom: 10px; padding: 5px; background-color: rgba(255,255,255,0.2); border-radius: 10px; display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span id="userDisplayName" style="color: white;">未登录</span>
+                <button id="logoutBtn" class="small-btn" style="margin: 0;">退出登录</button>
+            </div>
+        </div>
+        <div class="btn-group">
+            <button class="btn" id="clearDataBtn">清除数据</button>
+            <button class="btn" id="restoreBackupBtn">恢复备份</button>
+            <button class="btn" id="importDataBtn">导入数据</button>
+            <button class="btn" id="exportDataBtn">导出数据</button>
+        </div>
+    </div>
+    
+    <!-- 模块1：粘贴标题 -->
+    <div class="module module-1">
+        <div class="module-number">1</div>
+        <div class="module-title">粘贴标题</div>
+        <input type="text" class="title-input" id="titleInput" placeholder="请粘贴标题、半标题或商品编码">
+        <div class="hint">注：请粘贴标题、半标题或商品编码</div>
+        <div class="action-buttons">
+            <button class="small-btn" id="txtPolishBtn" style="font-size: 12px; line-height: 1.2; width: auto; padding: 8px 10px;">txt润色</button>
+            <button class="small-btn" id="addressGroupBtn" style="font-size: 12px; line-height: 1.2; width: auto; padding: 8px 10px;">购买地址<br>群号处理</button>
+            <button class="small-btn" id="clearTitleBtn">清空</button>
+            <button class="small-btn" id="confirmTitleBtn">确认</button>
+        </div>
+    </div>
+    
+    <!-- 模块2：复制购买链接 -->
+    <div class="module module-2">
+        <div class="module-number">2</div>
+        <div class="module-title">复制购买链接</div>
+        <div class="links-container" id="linksContainer"></div>
+    </div>
+    
+    <!-- 模块3：润色发货 -->
+    <div class="module module-3">
+        <div class="module-number">3</div>
+        <div class="module-title">润色发货</div>
+        <div class="polish-container" id="polishContainer"></div>
+        <div class="button-group">
+            <button class="circle-btn" id="settingsBtn">设置</button>
+            <button class="circle-btn" id="importBtn">导入</button>
+            <button class="circle-btn" id="copyBtn">复制</button>
+        </div>
+    </div>
+    
+    <!-- 模块3.5：快速启动应用 -->
+    <div class="module module-quick-launch">
+        <div class="module-title">快速启动</div>
+        <div class="quick-launch-container">
+            <button class="small-btn" id="addAppBtn">添加应用</button>
+            <div class="app-icons" id="appIconsContainer"></div>
+        </div>
+    </div>
+    
+    <!-- 模块4：总目录 -->
+    <div class="module module-4">
+        <div class="module-number">4</div>
+        <div class="module-title directory-title" id="directoryTitle">总目录</div>
+        <div class="directory-container" id="directoryContainer"></div>
+    </div>
+    
+    <!-- 各种模态对话框 -->
+    <!-- 清除数据对话框 -->
+    <div class="modal" id="clearDataModal">
+        <div class="modal-content">
+            <div class="modal-title">确认清除</div>
+            <div class="modal-body">
+                确定要清除所有数据吗？此操作不可恢复。
+            </div>
+            <div class="modal-footer">
+                <button class="small-btn" id="cancelClearBtn">取消</button>
+                <button class="small-btn" id="confirmClearBtn">确认</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 设置对话框 -->
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <div class="modal-title">润色发货设置</div>
+            <div class="modal-body">
+                <div style="margin-bottom: 10px;">
+                    <label for="prefixText">开头文本</label>
+                    <textarea id="prefixText" style="width: 100%; height: 100px; padding: 8px; border-radius: 4px; border: 1px solid #ccc;"></textarea>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label for="suffixText">结尾文本</label>
+                    <textarea id="suffixText" style="width: 100%; height: 100px; padding: 8px; border-radius: 4px; border: 1px solid #ccc;"></textarea>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label for="similarityThreshold">文本相似度阈值 (%)</label>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <input type="range" id="similarityThreshold" min="30" max="90" step="5" value="50" 
+                               style="flex-grow: 1;">
+                        <span id="thresholdValue" style="width: 40px; text-align: right;">50%</span>
+                    </div>
+                    <small style="display: block; margin-top: 5px; color: #666;">调整后会影响搜索结果的匹配程度。值越低匹配越宽松，值越高要求越严格。</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="small-btn" id="cancelSettingsBtn">取消</button>
+                <button class="small-btn" id="saveSettingsBtn">保存</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 导入原始链接对话框 -->
+    <div class="modal" id="importLinkModal">
+        <div class="modal-content">
+            <div class="modal-title">输入原始链接</div>
+            <div class="modal-body">
+                <textarea id="originalLinkInput" style="width: 100%; height: 150px; padding: 8px; border-radius: 4px; border: 1px solid #ccc;"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="small-btn" id="cancelImportLinkBtn">取消</button>
+                <button class="small-btn" id="clearImportLinkBtn">清空</button>
+                <button class="small-btn" id="confirmImportLinkBtn">确认</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 清除润色数据对话框 -->
+    <div class="modal" id="clearPolishDataModal">
+        <div class="modal-content">
+            <div class="modal-title">确认清除</div>
+            <div class="modal-body">
+                确定要清除本条数据的原始链接和润色链接吗？
+            </div>
+            <div class="modal-footer">
+                <button class="small-btn" id="cancelClearPolishBtn">取消</button>
+                <button class="small-btn" id="confirmClearPolishBtn">确认</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 添加应用对话框 -->
+    <div class="modal" id="addAppModal">
+        <div class="modal-content">
+            <div class="modal-title">添加快速启动应用</div>
+            <div class="modal-body">
+                <div style="margin-bottom: 15px;">
+                    <label for="appNameInput">应用名称</label>
+                    <input type="text" id="appNameInput" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc; margin-top: 5px;">
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label for="appUrlInput">应用链接</label>
+                    <input type="text" id="appUrlInput" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc; margin-top: 5px;" placeholder="例如: weixin://、alipays://、taobao://、jd://">
+                </div>
+                <div>
+                    <label for="appIconInput">应用图标URL (可选)</label>
+                    <input type="text" id="appIconInput" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc; margin-top: 5px;" placeholder="例如: https://example.com/icon.png">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="small-btn" id="cancelAddAppBtn">取消</button>
+                <button class="small-btn" id="confirmAddAppBtn">确认</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 购买地址群号处理对话框 -->
+    <div class="modal" id="addressGroupModal">
+        <div class="modal-content">
+            <div class="modal-title">购买地址群号处理</div>
+            <div class="modal-body">
+                <div style="margin-bottom: 15px;">
+                    <label for="newBuyAddressInput">新购买地址填入保存</label>
+                    <textarea id="newBuyAddressInput" style="width: 100%; height: 100px; padding: 8px; border-radius: 4px; border: 1px solid #ccc; margin-top: 5px;"></textarea>
+                </div>
+                <div>
+                    <label for="groupNumberInput">群号处理</label>
+                    <textarea id="groupNumberInput" style="width: 100%; height: 100px; padding: 8px; border-radius: 4px; border: 1px solid #ccc; margin-top: 5px;"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="small-btn" id="cancelAddressGroupBtn">取消</button>
+                <button class="small-btn" id="saveExportAddressGroupBtn">保存导出</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- TXT润色对话框 -->
+    <div class="modal" id="txtPolishModal">
+        <div class="modal-content">
+            <div class="modal-title">TXT润色模板设置</div>
+            <div class="modal-body">
+                <div style="margin-bottom: 15px;">
+                    <label for="txtPrefixInput">前缀文本</label>
+                    <textarea id="txtPrefixInput" style="width: 100%; height: 100px; padding: 8px; border-radius: 4px; border: 1px solid #ccc; margin-top: 5px;">因资源敏感，网盘链接容易被和谐，为保证您的权益和后续更新的需要，请按照下面的方式提取您的资料
+</textarea>
+                </div>
+                <div>
+                    <label for="txtSuffixInput">后缀文本</label>
+                    <textarea id="txtSuffixInput" style="width: 100%; height: 100px; padding: 8px; border-radius: 4px; border: 1px solid #ccc; margin-top: 5px;">
+如果正好出现网盘群人数满了加不进去的情况，请联系我，10分钟内解决问题</textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="small-btn" id="cancelTxtPolishBtn">取消</button>
+                <button class="small-btn" id="saveTxtPolishBtn">保存设置</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 清除润色数据对话框 -->
+    <!-- 提示消息 -->
+    <div class="toast" id="toast"></div>
+    
+    <!-- 恢复备份对话框 -->
+    <div class="modal" id="restoreBackupModal">
+        <div class="modal-content">
+            <div class="modal-title">选择备份恢复</div>
+            <div class="modal-body">
+                <div id="backupsList" style="max-height: 250px; overflow-y: auto; margin-bottom: 15px;">
+                    <!-- 备份列表将在这里动态生成 -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="small-btn" id="cancelRestoreBtn">取消</button>
+                <button class="small-btn" id="confirmRestoreBtn">确认恢复</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 加载指示器 -->
+    <div class="loader" id="loader">
+        <div class="spinner"></div>
+    </div>
+    
+    <!-- 用户登录对话框 -->
+    <div class="modal" id="loginModal">
+        <div class="modal-content">
+            <div class="modal-title">用户登录/注册</div>
+            <div class="modal-body">
+                <div id="connectionStatus" style="margin-bottom: 15px; padding: 8px; background-color: #f0f0f0; border-radius: 4px; font-size: 14px; color: #666; text-align: center;">
+                    正在连接到云端...
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label for="usernameInput">用户名</label>
+                    <input type="text" id="usernameInput" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc; margin-top: 5px;">
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label for="passwordInput">密码</label>
+                    <input type="password" id="passwordInput" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc; margin-top: 5px;">
+                </div>
+                <div id="loginError" style="color: red; margin-top: 5px; display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="small-btn" id="offlineBtn" style="background-color: #888;">离线使用</button>
+                <button class="small-btn" id="registerBtn">注册</button>
+                <button class="small-btn" id="loginBtn">登录</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 开发模式面板 -->
+    <div class="dev-panel" id="devPanel"></div>
+    
+    <!-- SheetJS库 - 用于Excel处理 -->
+    <script>
+        // 动态加载SheetJS
+        function loadSheetJS() {
+            return new Promise((resolve, reject) => {
+                // 尝试多个CDN源
+                const cdnUrls = [
+                    'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+                    'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+                    'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js'
+                ];
+
+                function tryLoadScript(urls) {
+                    if (urls.length === 0) {
+                        reject(new Error('所有CDN源加载失败'));
+                        return;
+                    }
+
+                    const script = document.createElement('script');
+                    script.src = urls[0];
+                    script.onload = () => resolve();
+                    script.onerror = () => {
+                        console.warn(`CDN ${urls[0]} 加载失败，尝试下一个源`);
+                        document.body.removeChild(script);
+                        tryLoadScript(urls.slice(1));
+                    };
+                    document.body.appendChild(script);
+                }
+
+                tryLoadScript(cdnUrls);
+            });
+        }
+
+        // 在使用XLSX之前确保它已加载
+        function ensureXLSX() {
+            if (typeof XLSX !== 'undefined') {
+                return Promise.resolve();
+            }
+            return loadSheetJS();
+        }
+    </script>
+    
+    <!-- vConsole - 仅在开发模式下加载 -->
+    <script>
+        // 开发模式开关
+        const DEV_MODE = false;
+        
+        // 如果开发模式开启或URL中包含debug=true，加载vConsole
+        if (DEV_MODE || window.location.search.indexOf('debug=true') !== -1) {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/vconsole@latest/dist/vconsole.min.js';
+            script.onload = function() {
+                new VConsole();
+            };
+            document.head.appendChild(script);
+        }
+    </script>
+    
+    <!-- 主应用脚本 -->
+    <script>
+        // 全局变量
+        const DB_NAME = 'quickBuyAndShipDB';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'products';
+        const APPS_STORE_KEY = 'quickLaunchApps';
+        let db;
+        
+        // 当前选中的商品
+        let selectedProduct = null;
+        
+        // 快速启动应用列表
+        let quickLaunchApps = [];
+        
+        // 当前登录用户
+        let currentUser = null;
+        
+        // DOM元素引用
+        const elements = {
+            titleInput: document.getElementById('titleInput'),
+            linksContainer: document.getElementById('linksContainer'),
+            polishContainer: document.getElementById('polishContainer'),
+            directoryContainer: document.getElementById('directoryContainer'),
+            directoryTitle: document.getElementById('directoryTitle'),
+            clearTitleBtn: document.getElementById('clearTitleBtn'),
+            confirmTitleBtn: document.getElementById('confirmTitleBtn'),
+            clearDataBtn: document.getElementById('clearDataBtn'),
+            restoreBackupBtn: document.getElementById('restoreBackupBtn'),
+            importDataBtn: document.getElementById('importDataBtn'),
+            exportDataBtn: document.getElementById('exportDataBtn'),
+            settingsBtn: document.getElementById('settingsBtn'),
+            importBtn: document.getElementById('importBtn'),
+            copyBtn: document.getElementById('copyBtn'),
+            addAppBtn: document.getElementById('addAppBtn'),
+            appIconsContainer: document.getElementById('appIconsContainer'),
+            toast: document.getElementById('toast'),
+            loader: document.getElementById('loader'),
+            devPanel: document.getElementById('devPanel'),
+            addressGroupBtn: document.getElementById('addressGroupBtn'),
+            txtPolishBtn: document.getElementById('txtPolishBtn'),
+            saveTxtPolishBtn: document.getElementById('saveTxtPolishBtn')
+        };
+        
+        // 各种模态对话框
+        const modals = {
+            clearData: document.getElementById('clearDataModal'),
+            restoreBackup: document.getElementById('restoreBackupModal'),
+            settings: document.getElementById('settingsModal'),
+            importLink: document.getElementById('importLinkModal'),
+            addApp: document.getElementById('addAppModal'),
+            clearPolishData: document.getElementById('clearPolishDataModal'),
+            addressGroup: document.getElementById('addressGroupModal'),
+            txtPolish: document.getElementById('txtPolishModal')
+        };
+        
+        // 设置对话框元素
+        const settingsElements = {
+            prefixText: document.getElementById('prefixText'),
+            suffixText: document.getElementById('suffixText'),
+            similarityThreshold: document.getElementById('similarityThreshold'),
+            thresholdValue: document.getElementById('thresholdValue'),
+            cancelBtn: document.getElementById('cancelSettingsBtn'),
+            saveBtn: document.getElementById('saveSettingsBtn')
+        };
+        
+        // 清除对话框元素
+        const clearDataElements = {
+            cancelBtn: document.getElementById('cancelClearBtn'),
+            confirmBtn: document.getElementById('confirmClearBtn')
+        };
+        
+        // 导入链接对话框元素
+        const importLinkElements = {
+            input: document.getElementById('originalLinkInput'),
+            cancelBtn: document.getElementById('cancelImportLinkBtn'),
+            clearBtn: document.getElementById('clearImportLinkBtn'),
+            confirmBtn: document.getElementById('confirmImportLinkBtn')
+        };
+        
+        // 添加应用对话框元素
+        const addAppElements = {
+            nameInput: document.getElementById('appNameInput'),
+            urlInput: document.getElementById('appUrlInput'),
+            iconInput: document.getElementById('appIconInput'),
+            cancelBtn: document.getElementById('cancelAddAppBtn'),
+            confirmBtn: document.getElementById('confirmAddAppBtn')
+        };
+        
+        // 清除润色数据对话框元素
+        const clearPolishDataElements = {
+            cancelBtn: document.getElementById('cancelClearPolishBtn'),
+            confirmBtn: document.getElementById('confirmClearPolishBtn')
+        };
+        
+        // 购买地址和群号处理对话框元素
+        const addressGroupElements = {
+            newBuyAddressInput: document.getElementById('newBuyAddressInput'),
+            groupNumberInput: document.getElementById('groupNumberInput'),
+            cancelBtn: document.getElementById('cancelAddressGroupBtn'),
+            saveExportBtn: document.getElementById('saveExportAddressGroupBtn')
+        };
+        
+        // TXT润色对话框元素
+        const txtPolishElements = {
+            prefixInput: document.getElementById('txtPrefixInput'),
+            suffixInput: document.getElementById('txtSuffixInput'),
+            cancelBtn: document.getElementById('cancelTxtPolishBtn'),
+            saveBtn: document.getElementById('saveTxtPolishBtn')
+        };
+        
+        // 恢复备份对话框元素
+        const restoreBackupElements = {
+            backupsList: document.getElementById('backupsList'),
+            cancelBtn: document.getElementById('cancelRestoreBtn'),
+            confirmBtn: document.getElementById('confirmRestoreBtn')
+        };
+        
+        // 常用应用的URL Scheme列表
+        const commonApps = [
+            { name: '微信', url: 'weixin://', icon: generateTextIcon('微', '#7BC060') },
+            { name: '支付宝', url: 'alipays://', icon: generateTextIcon('支', '#009BFF') },
+            { name: '淘宝', url: 'taobao://m.taobao.com', icon: generateTextIcon('淘', '#FF4D00') },
+            { name: '京东', url: 'openapp.jdmobile://', icon: generateTextIcon('京', '#C7000B') },
+            { name: '拼多多', url: 'pinduoduo://', icon: generateTextIcon('拼', '#E30200') },
+            { name: '抖音', url: 'snssdk1128://', icon: generateTextIcon('抖', '#000000') },
+            { name: 'QQ', url: 'mqq://', icon: generateTextIcon('Q', '#12B7F5') },
+            { name: '微博', url: 'sinaweibo://', icon: generateTextIcon('微', '#E6162D') },
+            { name: '百度', url: 'baiduboxapp://', icon: generateTextIcon('百', '#2932E1') },
+            { name: '美团', url: 'imeituan://', icon: generateTextIcon('美', '#FFD700') },
+            { name: '饿了么', url: 'eleme://', icon: generateTextIcon('饿', '#0099FF') },
+            { name: '哔哩哔哩', url: 'bilibili://', icon: generateTextIcon('哔', '#FB7C99') },
+            { name: '知乎', url: 'zhihu://', icon: generateTextIcon('知', '#0066FF') },
+            { name: '闲鱼', url: 'fleamarket://home', icon: generateTextIcon('闲', '#FF8C00') },
+            { name: '小红书', url: 'xhsdiscover://', icon: generateTextIcon('书', '#FE2C55') }
+        ];
+        
+        // 生成文字图标
+        function generateTextIcon(text, bgColor) {
+            const svgContent = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 60 60">
+                    <rect width="60" height="60" fill="${bgColor}"/>
+                    <text x="30" y="38" font-family="PingFang SC, Helvetica Neue, Arial, sans-serif" font-size="30" font-weight="bold" text-anchor="middle" fill="white">${text}</text>
+                </svg>
+            `;
+            
+            // 转换为Data URL
+            return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgContent)));
+        }
+        
+        // 日志记录函数
+        function logDebug(message) {
+            console.debug(message);
+            if (DEV_MODE) {
+                appendToDevPanel('[DEBUG] ' + message);
+            }
+        }
+        
+        function logInfo(message) {
+            console.info(message);
+            if (DEV_MODE) {
+                appendToDevPanel('[INFO] ' + message);
+            }
+        }
+        
+        function logWarning(message) {
+            console.warn(message);
+            if (DEV_MODE) {
+                appendToDevPanel('[WARN] ' + message);
+            }
+        }
+        
+        function logError(message) {
+            console.error(message);
+            if (DEV_MODE) {
+                appendToDevPanel('[ERROR] ' + message, true);
+            }
+        }
+        
+        // 开发面板添加日志
+        function appendToDevPanel(message, isError = false) {
+            if (!DEV_MODE) return;
+            
+            const entry = document.createElement('div');
+            entry.textContent = new Date().toLocaleTimeString() + ' ' + message;
+            if (isError) {
+                entry.style.color = 'red';
+            }
+            elements.devPanel.appendChild(entry);
+            elements.devPanel.scrollTop = elements.devPanel.scrollHeight;
+        }
+        
+        // 显示加载指示器
+        function showLoader() {
+            elements.loader.style.display = 'flex';
+        }
+        
+        // 隐藏加载指示器
+        function hideLoader() {
+            elements.loader.style.display = 'none';
+        }
+        
+        // 显示提示消息
+        function showToast(message, duration = 2000) {
+            elements.toast.textContent = message;
+            elements.toast.style.display = 'block';
+            
+            setTimeout(() => {
+                elements.toast.style.display = 'none';
+            }, duration);
+        }
+        
+        // 显示模态对话框
+        function showModal(modal) {
+            modal.style.display = 'flex';
+        }
+        
+        // 隐藏模态对话框
+        function hideModal(modal) {
+            modal.style.display = 'none';
+        }
+        
+        // 初始化LeanCloud数据库
+        function initDatabase() {
+            return new Promise((resolve, reject) => {
+                // 显示初始化状态
+                showToast('正在准备应用...');
+                
+                // 先尝试加载SDK（现在会立即返回，因为我们有离线模拟）
+                loadLeanCloudSDK().then(AV => {
+                    try {
+                        // 检查是否处于离线模拟模式
+                        if (window.leancloudOfflineMode) {
+                            logInfo('使用离线模式');
+                            showToast('应用已准备就绪（离线模式）');
+                            
+                            // 直接显示登录对话框，让用户选择离线模式
+                            showLoginModal();
+                            resolve();
+                            return;
+                        }
+                        
+                        // 初始化LeanCloud - 真实配置
+                        AV.init({
+                            appId: "g9p7QACKgdszhdt4gsStAxf1-gzGzoHsz",
+                            appKey: "ELKoc6UbXN4AqIwDo2vCJFjG"
+                        });
+                        
+                        // 测试连接
+                        return AV.Cloud.run('ping').then(function() {
+                            logInfo('LeanCloud连接成功');
+                            showToast('云端连接成功');
+                            
+                            // 检查是否已经登录
+                            currentUser = AV.User.current();
+                            if (currentUser) {
+                                logInfo(`用户 ${currentUser.get('username')} 已登录`);
+                                updateUserInfo();
+                                resolve();
+                            } else {
+                                // 显示登录对话框
+                                showLoginModal();
+                                resolve();
+                            }
+                        }).catch(function(error) {
+                            throw error; // 传递给外部catch处理
+                        });
+                    } catch (error) {
+                        throw error; // 传递给外部catch处理
+                    }
+                }).catch(error => {
+                    const errorMsg = '云端连接失败: ' + (error ? error.message : '未知错误');
+                    logError(errorMsg);
+                    showToast('正在切换到离线模式...', 2000);
+                    
+                    // 设置离线模式标记
+                    window.leancloudOfflineMode = true;
+                    
+                    // 更新登录框状态
+                    const connectionStatus = document.getElementById('connectionStatus');
+                    if (connectionStatus) {
+                        connectionStatus.textContent = '云端连接失败，请使用离线模式';
+                        connectionStatus.style.color = 'red';
+                    }
+                    
+                    const loginModalTitle = document.getElementById('loginModal').querySelector('.modal-title');
+                    if (loginModalTitle) {
+                        loginModalTitle.textContent = '无法连接到云端，请选择离线模式';
+                    }
+                    
+                    // 禁用登录和注册按钮
+                    const loginBtn = document.getElementById('loginBtn');
+                    const registerBtn = document.getElementById('registerBtn');
+                    if (loginBtn) loginBtn.disabled = true;
+                    if (registerBtn) registerBtn.disabled = true;
+                    
+                    // 显示登录对话框，让用户可以选择离线模式
+                    showLoginModal();
+                    resolve(); // 仍然resolve以便应用可以继续
+                });
+            });
+        }
+        
+                // 显示登录对话框
+        function showLoginModal() {
+            const loginModal = document.getElementById('loginModal');
+            loginModal.style.display = 'flex';
+            
+            const loginBtn = document.getElementById('loginBtn');
+            const registerBtn = document.getElementById('registerBtn');
+            const offlineBtn = document.getElementById('offlineBtn');
+            const usernameInput = document.getElementById('usernameInput');
+            const passwordInput = document.getElementById('passwordInput');
+            const loginError = document.getElementById('loginError');
+            const connectionStatus = document.getElementById('connectionStatus');
+            
+            // 检查是否处于离线模式
+            if (window.leancloudOfflineMode) {
+                connectionStatus.textContent = 'LeanCloud SDK未成功加载，请使用离线模式';
+                connectionStatus.style.color = 'red';
+                loginBtn.disabled = true;
+                registerBtn.disabled = true;
+                return;
+            }
+            
+            // 检查LeanCloud是否已加载
+            if (!window.leancloudLoaded || !window.AV) {
+                connectionStatus.textContent = 'LeanCloud SDK未成功加载，请使用离线模式';
+                connectionStatus.style.color = 'red';
+                loginBtn.disabled = true;
+                registerBtn.disabled = true;
+                return;
+            }
+            
+            // 检查LeanCloud连接状态
+            try {
+                window.AV.Cloud.run('ping').then(function() {
+                    connectionStatus.textContent = '云端已连接，请登录或注册';
+                    connectionStatus.style.color = 'green';
+                    loginBtn.disabled = false;
+                    registerBtn.disabled = false;
+                }).catch(function(error) {
+                    window.leancloudOfflineMode = true; // 设置离线模式标记
+                    connectionStatus.textContent = '云端连接失败: ' + (error ? error.message : '未知错误');
+                    connectionStatus.style.color = 'red';
+                    // 禁用登录和注册按钮
+                    loginBtn.disabled = true;
+                    registerBtn.disabled = true;
+                });
+            } catch (e) {
+                window.leancloudOfflineMode = true; // 设置离线模式标记
+                connectionStatus.textContent = '初始化失败: ' + (e ? e.message : '未知错误');
+                connectionStatus.style.color = 'red';
+                // 禁用登录和注册按钮
+                loginBtn.disabled = true;
+                registerBtn.disabled = true;
+            }
+            
+            // 离线模式按钮事件
+            offlineBtn.onclick = () => {
+                // 设置一个空的用户对象，仅用于离线模式
+                currentUser = {
+                    get: function(key) {
+                        return key === 'username' ? '离线用户' : null;
+                    },
+                    id: 'offline'
+                };
+                loginModal.style.display = 'none';
+                showToast('已进入离线模式，数据将存储在本地');
+                
+                // 检查并恢复之前的离线数据
+                try {
+                    const savedData = localStorage.getItem('offlineProducts');
+                    if (!savedData || JSON.parse(savedData).length === 0) {
+                        // 如果没有离线数据，则创建一个空数组
+                        localStorage.setItem('offlineProducts', JSON.stringify([]));
+                        showToast('创建了新的离线数据存储');
+                    } else {
+                        const count = JSON.parse(savedData).length;
+                        showToast(`检测到${count}条离线数据`);
+                    }
+                } catch(e) {
+                    localStorage.setItem('offlineProducts', JSON.stringify([]));
+                    console.error("离线数据解析失败", e);
+                }
+                
+                // 更新用户信息显示
+                updateUserInfo(true);
+                
+                // 重新加载数据（离线数据）
+                loadAndDisplayDirectory();
+            };
+            
+            // 注册按钮事件
+            registerBtn.onclick = async () => {
+                const username = usernameInput.value.trim();
+                const password = passwordInput.value.trim();
+                
+                if (!username || !password) {
+                    loginError.textContent = '用户名和密码不能为空';
+                    loginError.style.display = 'block';
+                    return;
+                }
+                
+                try {
+                    // 创建新用户
+                    const user = new AV.User();
+                    user.setUsername(username);
+                    user.setPassword(password);
+                    
+                    await user.signUp();
+                    currentUser = AV.User.current();
+                    loginModal.style.display = 'none';
+                    showToast(`用户 ${username} 注册成功并已登录`);
+                    
+                    // 更新用户信息显示
+                    updateUserInfo();
+                    
+                    // 重新加载数据
+                    loadAndDisplayDirectory();
+                } catch (error) {
+                    loginError.textContent = `注册失败: ${error.message}`;
+                    loginError.style.display = 'block';
+                }
+            };
+            
+            // 登录按钮事件
+            loginBtn.onclick = async () => {
+                const username = usernameInput.value.trim();
+                const password = passwordInput.value.trim();
+                
+                if (!username || !password) {
+                    loginError.textContent = '用户名和密码不能为空';
+                    loginError.style.display = 'block';
+                    return;
+                }
+                
+                try {
+                    const user = await AV.User.logIn(username, password);
+                    currentUser = user;
+                    loginModal.style.display = 'none';
+                    showToast(`用户 ${username} 登录成功`);
+                    
+                    // 更新用户信息显示
+                    updateUserInfo();
+                    
+                    // 重新加载数据
+                    loadAndDisplayDirectory();
+                } catch (error) {
+                    loginError.textContent = `登录失败: ${error.message}`;
+                    loginError.style.display = 'block';
+                }
+            };
+        }
+        
+        // 更新用户信息显示
+        function updateUserInfo(isOfflineMode = false) {
+            const userInfoBar = document.getElementById('userInfoBar');
+            const userDisplayName = document.getElementById('userDisplayName');
+            const logoutBtn = document.getElementById('logoutBtn');
+            
+            if (currentUser) {
+                userInfoBar.style.display = 'block';
+                
+                if (isOfflineMode) {
+                    userDisplayName.textContent = '离线模式';
+                    // 在离线模式下修改退出按钮文本
+                    logoutBtn.textContent = '重新连接';
+                    
+                    // 设置重新连接按钮事件
+                    logoutBtn.onclick = () => {
+                        currentUser = null;
+                        userInfoBar.style.display = 'none';
+                        showToast('正在尝试重新连接...');
+                        
+                        // 重新初始化
+                        initDatabase().then(() => {
+                            loadAndDisplayDirectory();
+                        });
+                    };
+                } else {
+                    userDisplayName.textContent = `已登录: ${currentUser.get('username')}`;
+                    logoutBtn.textContent = '退出登录';
+                    
+                    // 设置退出登录按钮事件
+                    logoutBtn.onclick = async () => {
+                        try {
+                            if (currentUser.id !== 'offline') {
+                                await AV.User.logOut();
+                            }
+                            currentUser = null;
+                            userInfoBar.style.display = 'none';
+                            showToast('已退出登录');
+                            
+                            // 重新加载数据（会提示登录）
+                            loadAndDisplayDirectory();
+                        } catch (error) {
+                            showToast(`退出登录失败: ${error ? error.message : '未知错误'}`);
+                        }
+                    };
+                }
+            } else {
+                userInfoBar.style.display = 'none';
+            }
+        }
+        
+        // 从LeanCloud添加或更新记录，支持离线模式
+        function addOrUpdateProduct(product) {
+            return new Promise(async (resolve, reject) => {
+                try {
+                    // 检查用户是否登录
+                    if (!currentUser) {
+                        showLoginModal();
+                        reject('请先登录');
+                        return;
+                    }
+                    
+                    // 离线模式 - 使用本地存储
+                    if (currentUser.id === 'offline') {
+                        // 获取现有数据
+                        let localProducts = JSON.parse(localStorage.getItem('offlineProducts') || '[]');
+                        
+                        // 如果产品有ID，则更新
+                        if (product.id) {
+                            const index = localProducts.findIndex(p => p.id === product.id);
+                            if (index !== -1) {
+                                localProducts[index] = {...product};
+                            } else {
+                                // 如果找不到，则添加
+                                localProducts.push({...product});
+                            }
+                        } else {
+                            // 新产品，生成一个本地ID
+                            product.id = 'local_' + Date.now();
+                            localProducts.push({...product});
+                        }
+                        
+                        // 保存回本地
+                        localStorage.setItem('offlineProducts', JSON.stringify(localProducts));
+                        resolve(product.id);
+                        return;
+                    }
+                    
+                    // 在线模式 - 使用LeanCloud
+                    // 创建Product类
+                    const Product = AV.Object.extend('Product');
+                    let productObject;
+                    
+                    // 如果有ID，则是更新
+                    if (product.objectId) {
+                        productObject = AV.Object.createWithoutData('Product', product.objectId);
+                    } else {
+                        productObject = new Product();
+                        // 新产品关联当前用户
+                        productObject.set('user', currentUser);
+                    }
+                    
+                    // 设置属性
+                    for (const key in product) {
+                        if (key !== 'objectId' && key !== 'createdAt' && key !== 'updatedAt' && key !== 'user') {
+                            productObject.set(key, product[key]);
+                        }
+                    }
+                    
+                    // 保存到服务器
+                    const savedProduct = await productObject.save();
+                    resolve(savedProduct.id);
+                } catch (error) {
+                    logError('保存数据失败: ' + error);
+                    reject('保存数据失败');
+                }
+            });
+        }
+        
+        // 查询LeanCloud中的所有记录，支持离线模式
+        function getAllProducts() {
+            return new Promise(async (resolve, reject) => {
+                try {
+                    // 如果用户未登录，返回空数组
+                    if (!currentUser) {
+                        resolve([]);
+                        return;
+                    }
+                    
+                    // 离线模式 - 从本地存储获取数据
+                    if (currentUser.id === 'offline') {
+                        const localProducts = JSON.parse(localStorage.getItem('offlineProducts') || '[]');
+                        resolve(localProducts);
+                        return;
+                    }
+                    
+                    // 在线模式 - 使用LeanCloud查询
+                    const query = new AV.Query('Product');
+                    // 只查询当前用户的数据
+                    query.equalTo('user', currentUser);
+                    query.limit(1000); // 设置一个较大的限制来获取更多记录
+                    const results = await query.find();
+                    
+                    // 将LeanCloud对象转换为普通JS对象
+                    const products = results.map(item => {
+                        const obj = item.toJSON();
+                        obj.id = obj.objectId; // 兼容旧代码，将objectId也设置为id
+                        return obj;
+                    });
+                    
+                    resolve(products);
+                } catch (error) {
+                    logError('获取所有数据失败: ' + error);
+                    showToast('获取数据失败: ' + error.message);
+                    // 在在线模式出错时也尝试使用离线数据
+                    try {
+                        const localProducts = JSON.parse(localStorage.getItem('offlineProducts') || '[]');
+                        resolve(localProducts);
+                    } catch (e) {
+                        reject('获取所有数据失败');
+                    }
+                }
+            });
+        }
+        
+        // 查询匹配标题或商品编码的记录，支持离线模式
+        function searchProducts(query) {
+            return new Promise(async (resolve, reject) => {
+                try {
+                    // 如果用户未登录，返回空结果
+                    if (!currentUser) {
+                        resolve([]);
+                        return;
+                    }
+                    
+                    // 离线模式 - 在本地搜索
+                    if (currentUser.id === 'offline') {
+                        const localProducts = JSON.parse(localStorage.getItem('offlineProducts') || '[]');
+                        const results = localProducts.filter(product => {
+                            // 商品编码精确匹配
+                            if (product.productCode && product.productCode === query) {
+                                return true;
+                            }
+                            // 标题包含
+                            if (product.title && product.title.includes(query)) {
+                                return true;
+                            }
+                            return false;
+                        });
+                        resolve(results);
+                        return;
+                    }
+                    
+                    // 在线模式 - 先尝试使用LeanCloud的查询功能
+                    const productCodeQuery = new AV.Query('Product');
+                    productCodeQuery.equalTo('productCode', query);
+                    productCodeQuery.equalTo('user', currentUser); // 只查询当前用户的数据
+                    
+                    const titleQuery = new AV.Query('Product');
+                    titleQuery.contains('title', query);
+                    titleQuery.equalTo('user', currentUser); // 只查询当前用户的数据
+                    
+                    // 合并查询条件
+                    const mainQuery = AV.Query.or(productCodeQuery, titleQuery);
+                    mainQuery.limit(100); // 限制结果数量
+                    
+                    // 执行查询
+                    const leanResults = await mainQuery.find();
+                    
+                    // 如果云端查询有结果，直接返回
+                    if (leanResults.length > 0) {
+                        const products = leanResults.map(item => {
+                            const obj = item.toJSON();
+                            obj.id = obj.objectId; // 兼容旧代码
+                            return obj;
+                        });
+                        resolve(products);
+                        return;
+                    }
+                    
+                    // 如果云端查询无结果，获取所有数据进行本地相似度匹配
+                    const allProducts = await getAllProducts();
+                    let results = [];
+                    const isExactProductCode = query.length >= 4 && /^[0-9A-Za-z-_]+$/.test(query);
+                    // 判断是否启用相似度算法 - 查询长度超过45个字符才启用
+                    const useAdvancedSimilarity = query.length > 45 && !isExactProductCode;
+                    
+                    // 从设置中获取相似度阈值，默认50%
+                    const settings = JSON.parse(localStorage.getItem('colorSettings') || '{}');
+                    const thresholdPercent = settings.similarityThreshold || 50;
+                    const threshold = thresholdPercent / 100; // 相似度阈值
+                    
+                    allProducts.forEach(product => {
+                        // 商品编码精确匹配
+                        if (product.productCode && product.productCode === query) {
+                            results.push({
+                                product: product,
+                                similarity: 1 // 100%匹配
+                            });
+                            return;
+                        }
+                        
+                        // 标题模糊匹配
+                        if (product.title) {
+                            // 完全匹配检查
+                            if (product.title === query) {
+                                results.push({
+                                    product: product,
+                                    similarity: 1,  // 100%完全匹配
+                                    isExactMatch: true
+                                });
+                            }
+                            // 如果是商品编码格式的查询或短查询，仅进行包含匹配
+                            else if (isExactProductCode || !useAdvancedSimilarity) {
+                                if (product.title.includes(query)) {
+                                    results.push({
+                                        product: product,
+                                        similarity: 0.9, // 90%匹配
+                                        isExactMatch: false
+                                    });
+                                }
+                            } 
+                            // 长查询进行高级相似度计算
+                            else {
+                                const similarity = calculateTextSimilarity(product.title, query);
+                                if (similarity >= threshold) {
+                                    results.push({
+                                        product: product,
+                                        similarity: similarity,
+                                        isExactMatch: similarity === 1
+                                    });
+                                }
+                            }
+                        }
+                    });
+                    
+                    // 按相似度从高到低排序
+                    results.sort((a, b) => b.similarity - a.similarity);
+                    
+                    // 仅返回产品对象
+                    resolve(results.map(result => result.product));
+                } catch (error) {
+                    logError('搜索数据失败: ' + error);
+                    reject('搜索数据失败');
+                }
+            });
+        }
+        
+        // 文本分词函数 - 轻量级中文分词实现
+        function tokenize(text) {
+            // 去除常见标点和特殊字符
+            text = text.replace(/[.,，。！？""''；：【】\(\)（）\[\]]/g, ' ');
+            
+            // 简单分词：2-3个字符为一个词元，重叠滑动窗口
+            const tokens = new Set();
+            const len = text.length;
+            
+            // 单字词
+            for (let i = 0; i < len; i++) {
+                tokens.add(text[i]);
+            }
+            
+            // 双字词
+            for (let i = 0; i < len - 1; i++) {
+                tokens.add(text.substring(i, i + 2));
+            }
+            
+            // 三字词
+            for (let i = 0; i < len - 2; i++) {
+                tokens.add(text.substring(i, i + 3));
+            }
+            
+            return Array.from(tokens);
+        }
+        
+        // 计算词频向量
+        function calculateTermFrequency(tokens) {
+            const tf = {};
+            tokens.forEach(token => {
+                tf[token] = (tf[token] || 0) + 1;
+            });
+            return tf;
+        }
+        
+        // 计算两个文本的余弦相似度
+        function calculateTextSimilarity(text1, text2) {
+            // 如果某一个文本为空，返回0相似度
+            if (!text1 || !text2) return 0;
+            
+            // 如果文本完全相同，返回1相似度
+            if (text1 === text2) return 1;
+            
+            // 如果一个文本完全包含在另一个中
+            if (text1.includes(text2)) {
+                const ratio = text2.length / text1.length;
+                // 如果包含文本长度比例大于0.5，给予较高相似度
+                return ratio > 0.5 ? 0.9 : 0.7 + ratio * 0.2;
+            }
+            
+            if (text2.includes(text1)) {
+                const ratio = text1.length / text2.length;
+                return ratio > 0.5 ? 0.9 : 0.7 + ratio * 0.2;
+            }
+            
+            // 对两个文本进行分词
+            const tokens1 = tokenize(text1);
+            const tokens2 = tokenize(text2);
+            
+            // 计算词频
+            const tf1 = calculateTermFrequency(tokens1);
+            const tf2 = calculateTermFrequency(tokens2);
+            
+            // 获取所有唯一词语
+            const allTokens = new Set([...tokens1, ...tokens2]);
+            
+            // 计算点积
+            let dotProduct = 0;
+            let magnitude1 = 0;
+            let magnitude2 = 0;
+            
+            allTokens.forEach(token => {
+                const freq1 = tf1[token] || 0;
+                const freq2 = tf2[token] || 0;
+                
+                dotProduct += freq1 * freq2;
+                magnitude1 += freq1 * freq1;
+                magnitude2 += freq2 * freq2;
+            });
+            
+            // 计算向量大小
+            magnitude1 = Math.sqrt(magnitude1);
+            magnitude2 = Math.sqrt(magnitude2);
+            
+            // 避免除以零
+            if (magnitude1 === 0 || magnitude2 === 0) return 0;
+            
+            // 计算余弦相似度
+            return dotProduct / (magnitude1 * magnitude2);
+        }
+        
+        // 删除所有记录，支持离线模式
+        function clearAllProducts() {
+            return new Promise(async (resolve, reject) => {
+                try {
+                    // 检查用户是否登录
+                    if (!currentUser) {
+                        showLoginModal();
+                        reject('请先登录');
+                        return;
+                    }
+                    
+                    // 离线模式 - 清除本地存储
+                    if (currentUser.id === 'offline') {
+                        localStorage.removeItem('offlineProducts');
+                        logInfo('所有离线数据已清除');
+                        resolve();
+                        return;
+                    }
+                    
+                    // 在线模式 - 使用LeanCloud删除
+                    // 先获取所有产品
+                    const query = new AV.Query('Product');
+                    query.equalTo('user', currentUser); // 只清除当前用户的数据
+                    query.limit(1000); // 设置一个较大的限制
+                    const results = await query.find();
+                    
+                    if (results.length === 0) {
+                        logInfo('没有数据需要清除');
+                        resolve();
+                        return;
+                    }
+                    
+                    // 批量删除
+                    await AV.Object.destroyAll(results);
+                    logInfo('所有数据已清除');
+                    resolve();
+                } catch (error) {
+                    logError('清除数据失败: ' + error);
+                    reject('清除数据失败');
+                }
+            });
+        }
+        
+        // 显示润色发货内容
+        function showPolishContent(polishLink) {
+            elements.polishContainer.textContent = polishLink || '';
+            updateCopyButtonState();
+        }
+        
+        // 更新复制按钮状态
+        function updateCopyButtonState() {
+            if (elements.polishContainer.textContent.trim()) {
+                elements.copyBtn.disabled = false;
+                elements.copyBtn.style.opacity = 1;
+            } else {
+                elements.copyBtn.disabled = true;
+                elements.copyBtn.style.opacity = 0.5;
+            }
+        }
+        
+        // 更新导入按钮状态
+        function updateImportButtonState() {
+            if (selectedProduct) {
+                elements.importBtn.disabled = false;
+                elements.importBtn.style.opacity = 1;
+                
+                // 启用购买地址+换行符+群号处理按钮
+                elements.addressGroupBtn.disabled = false;
+                elements.addressGroupBtn.style.opacity = 1;
+            } else {
+                elements.importBtn.disabled = true;
+                elements.importBtn.style.opacity = 0.5;
+                
+                // 禁用购买地址+换行符+群号处理按钮
+                elements.addressGroupBtn.disabled = true;
+                elements.addressGroupBtn.style.opacity = 0.5;
+            }
+        }
+        
+        // 加载并显示总目录
+        function loadAndDisplayDirectory() {
+            showLoader();
+            
+            getAllProducts()
+                .then(products => {
+                    // 按录入时间排序，最近的在前
+                    products.sort((a, b) => {
+                        // 如果有录入时间，按时间降序
+                        if (a.recordTime && b.recordTime) {
+                            return new Date(b.recordTime) - new Date(a.recordTime);
+                        }
+                        // 如果只有a有录入时间，a排前面
+                        else if (a.recordTime) {
+                            return -1;
+                        }
+                        // 如果只有b有录入时间，b排前面
+                        else if (b.recordTime) {
+                            return 1;
+                        }
+                        // 都没有录入时间，按商品编码排序
+                        else if (a.productCode && b.productCode) {
+                            return a.productCode.localeCompare(b.productCode);
+                        }
+                        // 默认排序规则
+                        return 0;
+                    });
+                    
+                    displayDirectoryItems(products);
+                    
+                    // 计算润色链接总数
+                    const totalPolishLinks = products.filter(product => product.polishLink).length;
+                    elements.directoryTitle.textContent = `总目录共${products.length}条（已润色${totalPolishLinks}条）`;
+                })
+                .catch(error => {
+                    showToast('加载目录失败: ' + error);
+                })
+                .finally(() => {
+                    hideLoader();
+                });
+        }
+        
+        // 显示目录项
+        function displayDirectoryItems(products) {
+            elements.directoryContainer.innerHTML = '';
+            
+            // 如果没有选中的商品，显示所有商品列表
+            if (!selectedProduct) {
+                products.forEach(product => {
+                    const item = document.createElement('div');
+                    item.className = `directory-item ${product.polishLink ? 'recorded' : 'not-recorded'}`;
+                    
+                    const titleElement = document.createElement('div');
+                    titleElement.className = 'directory-title-text';
+                    titleElement.textContent = product.title || '无标题';
+                    
+                    item.appendChild(titleElement);
+                    
+                    // 添加点击事件
+                    item.addEventListener('click', () => {
+                        selectDirectoryItem(product, item);
+                    });
+                    
+                    elements.directoryContainer.appendChild(item);
+                });
+            } 
+            // 如果有选中的商品，只显示该商品的详细信息
+            else {
+                const product = selectedProduct;
+                
+                // 添加搜索功能区域
+                const searchContainer = document.createElement('div');
+                searchContainer.className = 'directory-search-container';
+                searchContainer.style.display = 'flex';
+                searchContainer.style.alignItems = 'center';
+                searchContainer.style.marginBottom = '10px';
+                searchContainer.style.gap = '5px';
+                
+                // 搜索输入框
+                const searchInput = document.createElement('input');
+                searchInput.className = 'directory-search-input';
+                searchInput.type = 'text';
+                searchInput.placeholder = '输入搜索内容...';
+                searchInput.style.flex = '1';
+                searchInput.style.padding = '5px 8px';
+                searchInput.style.borderRadius = '4px';
+                searchInput.style.border = '1px solid #ccc';
+                searchInput.style.fontSize = '14px';
+                searchInput.style.maxWidth = '150px'; // 适合15个字左右
+                
+                // 搜索按钮
+                const searchButton = document.createElement('button');
+                searchButton.className = 'directory-search-button';
+                searchButton.textContent = '搜索';
+                searchButton.style.padding = '5px 8px';
+                searchButton.style.backgroundColor = '#4a7bff';
+                searchButton.style.color = 'white';
+                searchButton.style.border = 'none';
+                searchButton.style.borderRadius = '4px';
+                searchButton.style.fontSize = '14px';
+                searchButton.style.cursor = 'pointer';
+                
+                // 下一个按钮
+                const nextButton = document.createElement('button');
+                nextButton.className = 'directory-next-button';
+                nextButton.textContent = '下一个';
+                nextButton.style.padding = '5px 8px';
+                nextButton.style.backgroundColor = '#4a7bff';
+                nextButton.style.color = 'white';
+                nextButton.style.border = 'none';
+                nextButton.style.borderRadius = '4px';
+                nextButton.style.fontSize = '14px';
+                nextButton.style.cursor = 'pointer';
+                nextButton.style.display = 'none'; // 初始隐藏
+                
+                searchContainer.appendChild(searchInput);
+                searchContainer.appendChild(searchButton);
+                searchContainer.appendChild(nextButton);
+                
+                elements.directoryContainer.appendChild(searchContainer);
+                
+                // 创建用于显示商品描述的容器
+                const descriptionContainer = document.createElement('div');
+                descriptionContainer.className = 'directory-description-container';
+                descriptionContainer.style.maxHeight = '400px';
+                descriptionContainer.style.overflowY = 'auto';
+                descriptionContainer.style.border = '1px solid #ddd';
+                descriptionContainer.style.borderRadius = '4px';
+                descriptionContainer.style.padding = '10px';
+                descriptionContainer.style.backgroundColor = '#fff';
+                
+                const item = document.createElement('div');
+                item.className = `directory-item ${product.polishLink ? 'recorded' : 'not-recorded'} selected`;
+                
+                const titleElement = document.createElement('div');
+                titleElement.className = 'directory-title-text';
+                titleElement.textContent = product.title || '无标题';
+                
+                const descriptionElement = document.createElement('div');
+                descriptionElement.className = 'directory-description';
+                descriptionElement.id = 'directoryDescription';
+                descriptionElement.textContent = product.productDescription || '无商品描述';
+                descriptionElement.style.fontSize = '14px';
+                descriptionElement.style.lineHeight = '1.4';
+                descriptionElement.style.marginTop = '10px';
+                descriptionElement.style.marginBottom = '10px';
+                descriptionElement.style.whiteSpace = 'pre-wrap';
+                descriptionElement.style.wordBreak = 'break-word';
+                
+                const statusElement = document.createElement('div');
+                statusElement.className = 'directory-status';
+                
+                if (product.recordTime) {
+                    // 转换日期格式
+                    const date = new Date(product.recordTime);
+                    const formattedDate = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日收录`;
+                    statusElement.textContent = formattedDate;
+                } else {
+                    statusElement.textContent = '未收录';
+                }
+                
+                item.appendChild(titleElement);
+                item.appendChild(descriptionElement);
+                item.appendChild(statusElement);
+                
+                descriptionContainer.appendChild(item);
+                elements.directoryContainer.appendChild(descriptionContainer);
+                
+                // 添加返回按钮
+                const backButton = document.createElement('div');
+                backButton.className = 'directory-back-button';
+                backButton.textContent = '返回总目录';
+                backButton.style.textAlign = 'center';
+                backButton.style.padding = '10px';
+                backButton.style.backgroundColor = '#4a7bff';
+                backButton.style.color = 'white';
+                backButton.style.borderRadius = '5px';
+                backButton.style.marginTop = '10px';
+                backButton.style.fontWeight = 'bold';
+                backButton.style.cursor = 'pointer';
+                
+                backButton.addEventListener('click', () => {
+                    // 清除选中状态但保留selectedProduct以便复制等操作
+                    const tempProduct = selectedProduct;
+                    selectedProduct = null;
+                    loadAndDisplayDirectory().then(() => {
+                        // 恢复selectedProduct以便继续操作
+                        selectedProduct = tempProduct;
+                        updateImportButtonState();
+                    });
+                });
+                
+                elements.directoryContainer.appendChild(backButton);
+                
+                // 为搜索和下一个按钮添加事件处理
+                let currentMatchIndex = -1;
+                let matches = [];
+                
+                // 搜索函数
+                function searchInDescription() {
+                    const searchText = searchInput.value.trim();
+                    if (!searchText) return;
+                    
+                    // 重置高亮
+                    resetHighlight();
+                    
+                    // 获取商品描述文本
+                    const descriptionText = product.productDescription || '';
+                    
+                    // 找到所有匹配项的位置
+                    matches = [];
+                    let position = descriptionText.indexOf(searchText);
+                    while (position !== -1) {
+                        matches.push(position);
+                        position = descriptionText.indexOf(searchText, position + 1);
+                    }
+                    
+                    if (matches.length > 0) {
+                        // 高亮显示所有匹配项
+                        highlightMatches(descriptionText, searchText, matches);
+                        
+                        // 显示下一个按钮
+                        nextButton.style.display = 'block';
+                        
+                        // 重置当前匹配索引并导航到第一个匹配项
+                        currentMatchIndex = 0;
+                        navigateToMatch(currentMatchIndex);
+                        
+                        showToast(`找到${matches.length}处匹配`);
+                    } else {
+                        showToast('未找到匹配内容');
+                        nextButton.style.display = 'none';
+                    }
+                }
+                
+                // 重置高亮
+                function resetHighlight() {
+                    const descElement = document.getElementById('directoryDescription');
+                    if (descElement) {
+                        descElement.innerHTML = product.productDescription || '无商品描述';
+                    }
+                }
+                
+                // 高亮所有匹配项
+                function highlightMatches(text, searchText, matches) {
+                    const descElement = document.getElementById('directoryDescription');
+                    if (!descElement) return;
+                    
+                    let result = '';
+                    let lastIndex = 0;
+                    
+                    // 为每个匹配位置添加高亮标记
+                    matches.forEach((position, index) => {
+                        // 添加匹配前的文本
+                        result += text.substring(lastIndex, position);
+                        
+                        // 添加高亮的匹配文本
+                        result += `<span id="match-${index}" class="highlight" style="background-color: yellow; color: black; padding: 2px; border-radius: 2px;">${text.substring(position, position + searchText.length)}</span>`;
+                        
+                        // 更新lastIndex
+                        lastIndex = position + searchText.length;
+                    });
+                    
+                    // 添加最后一个匹配之后的文本
+                    result += text.substring(lastIndex);
+                    
+                    // 更新描述元素的内容
+                    descElement.innerHTML = result;
+                }
+                
+                // 导航到指定匹配项
+                function navigateToMatch(index) {
+                    if (index < 0 || index >= matches.length) return;
+                    
+                    const matchElement = document.getElementById(`match-${index}`);
+                    if (matchElement) {
+                        // 滚动到匹配元素
+                        const container = descriptionContainer;
+                        
+                        // 计算元素相对于容器的位置
+                        const elementTop = matchElement.offsetTop;
+                        const containerTop = container.scrollTop;
+                        const containerHeight = container.clientHeight;
+                        
+                        // 将匹配项滚动到容器的中间位置
+                        const scrollPosition = elementTop - (containerHeight / 2);
+                        container.scrollTop = scrollPosition;
+                        
+                        // 添加额外的高亮效果，表示当前活动匹配项
+                        for (let i = 0; i < matches.length; i++) {
+                            const elem = document.getElementById(`match-${i}`);
+                            if (elem) {
+                                if (i === index) {
+                                    elem.style.backgroundColor = '#ff9e7a'; // 当前项使用橙色高亮
+                                    elem.style.boxShadow = '0 0 3px #ff9e7a';
+                                } else {
+                                    elem.style.backgroundColor = 'yellow'; // 其他项使用黄色高亮
+                                    elem.style.boxShadow = 'none';
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // 为搜索按钮添加点击事件
+                searchButton.addEventListener('click', searchInDescription);
+                
+                // 为搜索输入框添加回车键事件
+                searchInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        searchInDescription();
+                    }
+                });
+                
+                // 为下一个按钮添加点击事件
+                nextButton.addEventListener('click', () => {
+                    if (matches.length === 0) return;
+                    
+                    // 移动到下一个匹配项，循环到第一个
+                    currentMatchIndex = (currentMatchIndex + 1) % matches.length;
+                    navigateToMatch(currentMatchIndex);
+                });
+                
+                // 添加长按复制功能
+                let pressTimer;
+                descriptionContainer.addEventListener('touchstart', () => {
+                    pressTimer = setTimeout(() => {
+                        copyToClipboard(product.productDescription || '');
+                        showToast('已复制商品描述');
+                        navigator.vibrate && navigator.vibrate(50);
+                    }, 800);
+                });
+                
+                descriptionContainer.addEventListener('touchend', () => {
+                    clearTimeout(pressTimer);
+                });
+                
+                descriptionContainer.addEventListener('touchmove', () => {
+                    clearTimeout(pressTimer);
+                });
+            }
+        }
+        
+        // 选择目录项
+        function selectDirectoryItem(product, itemElement) {
+            // 移除之前的选中状态
+            const prevSelected = elements.directoryContainer.querySelector('.selected');
+            if (prevSelected) {
+                prevSelected.classList.remove('selected');
+            }
+            
+            // 添加新的选中状态
+            itemElement.classList.add('selected');
+            
+            // 更新选中商品
+            selectedProduct = product;
+            
+            // 显示润色链接（如果有）
+            showPolishContent(product.polishLink || '');
+            
+            // 更新导入按钮状态
+            updateImportButtonState();
+        }
+        
+        // 加载快速启动应用
+        function loadQuickLaunchApps() {
+            const appsJson = localStorage.getItem(APPS_STORE_KEY);
+            if (appsJson) {
+                try {
+                    quickLaunchApps = JSON.parse(appsJson);
+                } catch (error) {
+                    logError('解析快速启动应用失败: ' + error);
+                    quickLaunchApps = [];
+                }
+            }
+            
+            displayQuickLaunchApps();
+        }
+        
+        // 保存快速启动应用
+        function saveQuickLaunchApps() {
+            try {
+                localStorage.setItem(APPS_STORE_KEY, JSON.stringify(quickLaunchApps));
+            } catch (error) {
+                logError('保存快速启动应用失败: ' + error);
+            }
+        }
+        
+        // 添加快速启动应用
+        function addQuickLaunchApp(name, url, iconUrl) {
+            // 检查是否已达到最大数量
+            if (quickLaunchApps.length >= 5) {
+                showToast('最多只能添加5个快速启动应用');
+                return false;
+            }
+            
+            // 创建应用对象
+            const app = {
+                id: Date.now().toString(),
+                name: name,
+                url: url,
+                iconUrl: iconUrl || getDefaultIconUrl(name)
+            };
+            
+            // 添加到列表
+            quickLaunchApps.push(app);
+            
+            // 保存到本地存储
+            saveQuickLaunchApps();
+            
+            // 更新显示
+            displayQuickLaunchApps();
+            
+            return true;
+        }
+        
+        // 删除快速启动应用
+        function removeQuickLaunchApp(id) {
+            const index = quickLaunchApps.findIndex(app => app.id === id);
+            if (index !== -1) {
+                quickLaunchApps.splice(index, 1);
+                saveQuickLaunchApps();
+                displayQuickLaunchApps();
+                return true;
+            }
+            return false;
+        }
+        
+        // 显示快速启动应用
+        function displayQuickLaunchApps() {
+            elements.appIconsContainer.innerHTML = '';
+            
+            quickLaunchApps.forEach(app => {
+                const appIcon = document.createElement('div');
+                appIcon.className = 'app-icon';
+                appIcon.dataset.id = app.id;
+                appIcon.dataset.url = app.url;
+                
+                const img = document.createElement('img');
+                img.src = app.iconUrl;
+                img.alt = app.name;
+                img.title = app.name;
+                
+                const removeBtn = document.createElement('div');
+                removeBtn.className = 'remove-btn';
+                removeBtn.textContent = '×';
+                removeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    removeQuickLaunchApp(app.id);
+                });
+                
+                appIcon.appendChild(img);
+                appIcon.appendChild(removeBtn);
+                
+                // 添加点击事件，打开应用
+                appIcon.addEventListener('click', () => {
+                    openApp(app.url);
+                });
+                
+                elements.appIconsContainer.appendChild(appIcon);
+            });
+            
+            // 更新添加按钮状态
+            updateAddAppButtonState();
+        }
+        
+        // 更新添加应用按钮状态
+        function updateAddAppButtonState() {
+            if (quickLaunchApps.length >= 5) {
+                elements.addAppBtn.disabled = true;
+                elements.addAppBtn.style.opacity = 0.5;
+            } else {
+                elements.addAppBtn.disabled = false;
+                elements.addAppBtn.style.opacity = 1;
+            }
+        }
+        
+        // 打开应用
+        function openApp(url) {
+            try {
+                // 创建一个隐藏的iframe来尝试打开应用
+                const iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                document.body.appendChild(iframe);
+                
+                // 设置超时，如果应用没有打开，显示提示
+                const timeout = setTimeout(() => {
+                    showToast('应用可能未安装或浏览器阻止了打开', 3000);
+                }, 2000);
+                
+                // 尝试打开应用
+                iframe.onload = function() {
+                    clearTimeout(timeout);
+                    document.body.removeChild(iframe);
+                };
+                
+                iframe.src = url;
+                
+                // 同时尝试使用window.location
+                setTimeout(() => {
+                    window.location.href = url;
+                }, 100);
+            } catch (error) {
+                logError('打开应用失败: ' + error);
+                showToast('打开应用失败，请检查链接是否正确或尝试其他浏览器');
+            }
+        }
+        
+        // 获取默认图标URL
+        function getDefaultIconUrl(name) {
+            // 根据应用名称的首字母生成颜色
+            const colors = ['#f44336', '#e91e63', '#9c27b0', '#673ab7', '#3f51b5', '#2196f3', '#03a9f4', '#00bcd4', '#009688', '#4caf50', '#8bc34a', '#cddc39', '#ffeb3b', '#ffc107', '#ff9800', '#ff5722'];
+            const index = name.charCodeAt(0) % colors.length;
+            const color = colors[index];
+            
+            // 生成SVG图标
+            const firstChar = name.charAt(0).toUpperCase();
+            const svgContent = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 60 60">
+                    <rect width="60" height="60" fill="${color}" />
+                    <text x="30" y="38" font-family="Arial" font-size="30" font-weight="bold" text-anchor="middle" fill="white">${firstChar}</text>
+                </svg>
+            `;
+            
+            // 转换为Data URL
+            return 'data:image/svg+xml;base64,' + btoa(svgContent);
+        }
+        
+        // 初始化应用
+        function initApp() {
+            showLoader();
+            
+            // 初始化数据库
+            initDatabase()
+                .then(() => {
+                    // 加载总目录
+                    return loadAndDisplayDirectory();
+                })
+                .then(() => {
+                    // 初始化设置
+                    initSettings();
+                    
+                    // 加载快速启动应用
+                    loadQuickLaunchApps();
+                    
+                    // 初始化按钮状态
+                    updateCopyButtonState();
+                    updateImportButtonState();
+                    updateAddAppButtonState();
+                    
+                    // 初始状态下禁用购买地址+换行符+群号处理按钮
+                    elements.addressGroupBtn.disabled = true;
+                    elements.addressGroupBtn.style.opacity = 0.5;
+                    
+                    // 检查是否是首次使用
+                    return checkFirstUse();
+                })
+                .then(() => {
+                    // 执行自动本地备份
+                    performAutoBackup();
+                })
+                .catch(error => {
+                    showToast('初始化失败: ' + error);
+                    logError('初始化失败: ' + error);
+                })
+                .finally(() => {
+                    hideLoader();
+                    
+                    // 显示开发面板（如果开启）
+                    if (DEV_MODE) {
+                        elements.devPanel.style.display = 'block';
+                    }
+                });
+        }
+        
+        // 执行自动本地备份
+        function performAutoBackup() {
+            try {
+                // 创建备份标识
+                const backupDate = new Date();
+                const backupId = `autoBackup_${backupDate.getFullYear()}${(backupDate.getMonth()+1).toString().padStart(2, '0')}${backupDate.getDate().toString().padStart(2, '0')}_${backupDate.getHours().toString().padStart(2, '0')}${backupDate.getMinutes().toString().padStart(2, '0')}`;
+                
+                // 获取所有数据
+                getAllProducts().then(products => {
+                    // 将数据存储到localStorage
+                    if (products && products.length > 0) {
+                        try {
+                            localStorage.setItem(backupId, JSON.stringify(products));
+                            // 显示简短提示
+                            showToast('已备份', 1000);
+                            logInfo('自动备份已完成');
+                        } catch (e) {
+                            // 如果localStorage空间不足，清理旧备份
+                            clearOldBackups();
+                            localStorage.setItem(backupId, JSON.stringify(products));
+                            showToast('已备份', 1000);
+                        }
+                    }
+                });
+            } catch (error) {
+                logError('自动备份失败: ' + error);
+            }
+        }
+        
+        // 清理旧备份以释放空间
+        function clearOldBackups() {
+            try {
+                const keys = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key.startsWith('autoBackup_')) {
+                        keys.push(key);
+                    }
+                }
+                
+                // 按日期排序，保留最新的备份
+                keys.sort().reverse();
+                
+                // 保留最新的10个备份，删除其他的
+                for (let i = 10; i < keys.length; i++) {
+                    localStorage.removeItem(keys[i]);
+                }
+            } catch (error) {
+                logError('清理旧备份失败: ' + error);
+            }
+        }
+        
+        // 检查是否首次使用
+        function checkFirstUse() {
+            return getAllProducts()
+                .then(products => {
+                    if (products.length === 0) {
+                        // 是首次使用，显示欢迎消息
+                        showToast('欢迎使用快捷购买润色发货工具', 3000);
+                    }
+                });
+        }
+        
+        // 初始化设置
+        function initSettings() {
+            // 从localStorage加载设置
+            const settings = JSON.parse(localStorage.getItem('colorSettings') || '{}');
+            
+            // 设置默认值
+            settingsElements.prefixText.value = settings.prefix || '♥陛下请您查收，有问题及时呼叫臣下♥\n';
+            settingsElements.suffixText.value = settings.suffix || '\n♥美好的一天从此刻开始♥\n♥♥回复"1"得增品♥♥';
+            
+            // 初始化相似度阈值设置
+            const similarityThreshold = settings.similarityThreshold || 50;
+            if (settingsElements.similarityThreshold) {
+                settingsElements.similarityThreshold.value = similarityThreshold;
+                if (settingsElements.thresholdValue) {
+                    settingsElements.thresholdValue.textContent = similarityThreshold + '%';
+                }
+                
+                // 添加滑块事件监听
+                settingsElements.similarityThreshold.addEventListener('input', function() {
+                    settingsElements.thresholdValue.textContent = this.value + '%';
+                });
+            }
+        }
+        
+        // 保存设置
+        function saveSettings() {
+            const settings = {
+                prefix: settingsElements.prefixText.value,
+                suffix: settingsElements.suffixText.value
+            };
+            
+            // 保存相似度阈值
+            if (settingsElements.similarityThreshold) {
+                settings.similarityThreshold = parseInt(settingsElements.similarityThreshold.value);
+            }
+            
+            localStorage.setItem('colorSettings', JSON.stringify(settings));
+            logInfo('设置已保存');
+            return settings;
+        }
+        
+        // 复制文本到剪贴板
+        function copyToClipboard(text) {
+            // 创建临时元素
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = 0;
+            
+            document.body.appendChild(textarea);
+            textarea.select();
+            
+            try {
+                const successful = document.execCommand('copy');
+                if (!successful) throw new Error('复制失败');
+            } catch (err) {
+                logError('复制到剪贴板失败: ' + err);
+                // 尝试使用新API
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text)
+                        .catch(err => {
+                            logError('复制到剪贴板失败: ' + err);
+                        });
+                }
+            }
+            
+            document.body.removeChild(textarea);
+        }
+        
+        // 提取网盘链接和提取码
+        function extractLinks(text) {
+            // 分割文本为行
+            let lines = text.split('\n');
+            
+            // 分别匹配百度网盘和夸克网盘链接
+            const baiduRegex = /(https?:\/\/(?:pan|www)\.baidu\.com\/s\/[a-zA-Z0-9_-]+(?:\?pwd=|\?)?\w*)/g;
+            const quarkRegex = /((?:https?:\/\/)?(?:pan|www)?\.?quark\.cn\/s\/[a-zA-Z0-9_-]+(?:\?pwd=|\?)?\w*)/g;
+            
+            // 提取码模式 - 支持多种格式
+            const extractCodePattern = /提取码[：:]\s*(\w+)|密码[：:]\s*(\w+)|访问码[：:]\s*(\w+)|访问密码[：:]\s*(\w+)/i;
+            
+            // 第一步：提取百度网盘链接和提取码
+            let baiduResult = [];
+            let baiduLinks = [];
+            let baiduExtractCodes = [];
+            
+            // 第二步：提取夸克网盘链接和提取码
+            let quarkResult = [];
+            let quarkLinks = [];
+            let quarkExtractCodes = [];
+            
+            // 用于跟踪已处理过的提取码，避免重复
+            let processedCodes = new Set();
+            
+            // 最终结果数组
+            let result = [];
+            
+            // 第一步：扫描并收集所有百度网盘链接
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i].trim();
+                if (!line) continue; // 跳过空行
+                
+                // 查找百度网盘链接
+                baiduRegex.lastIndex = 0;
+                let baiduMatch;
+                while ((baiduMatch = baiduRegex.exec(line)) !== null) {
+                    baiduLinks.push({
+                        link: baiduMatch[0],
+                        line: i,
+                        hasExtractCode: baiduMatch[0].includes('pwd=')
+                    });
+                }
+                
+                // 查找夸克网盘链接
+                quarkRegex.lastIndex = 0;
+                let quarkMatch;
+                while ((quarkMatch = quarkRegex.exec(line)) !== null) {
+                    // 确保链接以http或https开头
+                    let link = quarkMatch[0];
+                    if (!link.startsWith('http')) {
+                        link = 'https://' + link;
+                    }
+                    
+                    quarkLinks.push({
+                        link: link,
+                        line: i,
+                        hasExtractCode: link.includes('pwd=')
+                    });
+                }
+            }
+            
+            // 第二步：扫描并收集所有提取码
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i].trim();
+                if (!line) continue; // 跳过空行
+                
+                // 查找提取码
+                let codeMatch = line.match(extractCodePattern);
+                if (codeMatch) {
+                    const code = codeMatch[1] || codeMatch[2] || codeMatch[3] || codeMatch[4];
+                    
+                    // 检查是否与百度网盘链接在同一行或相邻行
+                    let isBaiduRelated = false;
+                    for (let link of baiduLinks) {
+                        if (Math.abs(link.line - i) <= 2) { // 在同一行或相邻的两行
+                            isBaiduRelated = true;
+                            break;
+                        }
+                    }
+                    
+                    if (isBaiduRelated) {
+                        baiduExtractCodes.push({
+                            text: `提取码：${code}`,
+                            code: code,
+                            line: i,
+                            used: false
+                        });
+                    } else {
+                        // 检查是否与夸克网盘链接在同一行或相邻行
+                        let isQuarkRelated = false;
+                        for (let link of quarkLinks) {
+                            if (Math.abs(link.line - i) <= 2) { // 在同一行或相邻的两行
+                                isQuarkRelated = true;
+                                break;
+                            }
+                        }
+                        
+                        if (isQuarkRelated) {
+                            quarkExtractCodes.push({
+                                text: `提取码：${code}`,
+                                code: code,
+                                line: i,
+                                used: false
+                            });
+                        } else if (baiduLinks.length > 0 && quarkLinks.length === 0) {
+                            // 如果只有百度网盘链接，则认为是百度的提取码
+                            baiduExtractCodes.push({
+                                text: `提取码：${code}`,
+                                code: code,
+                                line: i,
+                                used: false
+                            });
+                        } else if (quarkLinks.length > 0 && baiduLinks.length === 0) {
+                            // 如果只有夸克网盘链接，则认为是夸克的提取码
+                            quarkExtractCodes.push({
+                                text: `提取码：${code}`,
+                                code: code,
+                                line: i,
+                                used: false
+                            });
+                        } else {
+                            // 如果两种链接都有，则根据距离判断
+                            let nearestBaiduDist = Number.MAX_SAFE_INTEGER;
+                            let nearestQuarkDist = Number.MAX_SAFE_INTEGER;
+                            
+                            for (let link of baiduLinks) {
+                                let dist = Math.abs(link.line - i);
+                                if (dist < nearestBaiduDist) {
+                                    nearestBaiduDist = dist;
+                                }
+                            }
+                            
+                            for (let link of quarkLinks) {
+                                let dist = Math.abs(link.line - i);
+                                if (dist < nearestQuarkDist) {
+                                    nearestQuarkDist = dist;
+                                }
+                            }
+                            
+                            if (nearestBaiduDist <= nearestQuarkDist) {
+                                baiduExtractCodes.push({
+                                    text: `提取码：${code}`,
+                                    code: code,
+                                    line: i,
+                                    used: false
+                                });
+                            } else {
+                                quarkExtractCodes.push({
+                                    text: `提取码：${code}`,
+                                    code: code,
+                                    line: i,
+                                    used: false
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 处理百度网盘链接 - 关联提取码
+            for (let link of baiduLinks) {
+                if (link.hasExtractCode) {
+                    // 从链接中提取提取码
+                    const pwdMatch = link.link.match(/pwd=([^&]+)/);
+                    if (pwdMatch && pwdMatch[1]) {
+                        processedCodes.add(pwdMatch[1].toLowerCase());
+                    }
+                    
+                    // 如果链接已包含提取码，直接添加链接
+                    baiduResult.push("度盘连接：\n" + link.link);
+                    continue;
+                }
+                
+                // 查找最近的提取码
+                let nearestCode = null;
+                let minDistance = Number.MAX_SAFE_INTEGER;
+                
+                for (let codeInfo of baiduExtractCodes) {
+                    if (codeInfo.used) continue; // 跳过已使用的提取码
+                    
+                    let distance = Math.abs(codeInfo.line - link.line);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        nearestCode = codeInfo;
+                    }
+                }
+                
+                // 如果找到了提取码且距离不太远，添加到链接中
+                if (nearestCode && minDistance <= 5) {
+                    if (link.link.includes('?')) {
+                        // 修复：避免添加多余的&字符
+                        if (link.link.endsWith('?')) {
+                            link.link = link.link + 'pwd=' + nearestCode.code;
+                        } else {
+                            // 确保不会添加多余的&
+                            link.link = link.link.replace(/\?/, '?pwd=' + nearestCode.code);
+                        }
+                    } else {
+                        link.link += '?pwd=' + nearestCode.code;
+                    }
+                    
+                    // 记录已处理的提取码
+                    processedCodes.add(nearestCode.code.toLowerCase());
+                    
+                    // 标记提取码为已使用，避免重复处理
+                    nearestCode.used = true;
+                }
+                
+                baiduResult.push("度盘连接：\n" + link.link);
+            }
+            
+            // 添加未使用的百度提取码文本（仅添加未处理过的）
+            for (let codeInfo of baiduExtractCodes) {
+                if (!codeInfo.used && !processedCodes.has(codeInfo.code.toLowerCase())) {
+                    baiduResult.push(codeInfo.text);
+                    processedCodes.add(codeInfo.code.toLowerCase());
+                }
+            }
+            
+            // 处理夸克网盘链接 - 不自动添加提取码到URL
+            for (let link of quarkLinks) {
+                // 对于夸克网盘，添加标识前缀并保持原始链接格式
+                quarkResult.push("跨盘连接：\n" + link.link);
+                
+                // 查找最近的提取码
+                let nearestCode = null;
+                let minDistance = Number.MAX_SAFE_INTEGER;
+                
+                for (let codeInfo of quarkExtractCodes) {
+                    if (codeInfo.used) continue; // 跳过已使用的提取码
+                    
+                    let distance = Math.abs(codeInfo.line - link.line);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        nearestCode = codeInfo;
+                    }
+                }
+                
+                // 如果找到了提取码且距离不太远，添加提取码文本
+                if (nearestCode && minDistance <= 5) {
+                    // 检查是否已经处理过该提取码
+                    if (!processedCodes.has(nearestCode.code.toLowerCase())) {
+                        // 标记提取码为已使用，避免重复处理
+                        nearestCode.used = true;
+                        // 添加提取码文本到结果中
+                        quarkResult.push(nearestCode.text);
+                        // 记录已处理的提取码
+                        processedCodes.add(nearestCode.code.toLowerCase());
+                    }
+                }
+            }
+            
+            // 添加未使用的夸克提取码文本（仅添加未处理过的）
+            for (let codeInfo of quarkExtractCodes) {
+                if (!codeInfo.used && !processedCodes.has(codeInfo.code.toLowerCase())) {
+                    quarkResult.push(codeInfo.text);
+                    processedCodes.add(codeInfo.code.toLowerCase());
+                }
+            }
+            
+            // 按照指定顺序组合结果：百度网盘链接和提取码、夸克网盘链接和提取码
+            
+            // 添加百度网盘结果
+            if (baiduResult.length > 0) {
+                result = result.concat(baiduResult);
+            }
+            
+            // 在百度网盘和夸克网盘结果之间添加换行符
+            if (baiduResult.length > 0 && quarkResult.length > 0) {
+                result.push(""); // 添加一个空字符串，join时会转换为换行符
+            }
+            
+            // 添加夸克网盘结果
+            if (quarkResult.length > 0) {
+                result = result.concat(quarkResult);
+            }
+            
+            return result.join('\n');
+        }
+        
+        // 润色链接
+        function polishLink(originalLink) {
+            // 处理网盘链接和提取码
+            const processedText = extractLinks(originalLink);
+            
+            // 获取设置
+            const settings = JSON.parse(localStorage.getItem('colorSettings') || '{}');
+            const prefix = settings.prefix || '♥陛下请您查收，有问题及时呼叫臣下♥\n';
+            const suffix = settings.suffix || '\n♥美好的一天从此刻开始♥\n♥♥回复"1"得增品♥♥';
+            
+            // 组合润色后的文本
+            return `${prefix}\n${processedText}\n${suffix}`;
+        }
+        
+        // 导出Excel
+        function exportExcel(exportType = 'normal', fileType = 'xlsx') {
+            return ensureXLSX()
+                .then(() => getAllProducts())
+                .then(products => {
+                    let data;
+                    const wb = XLSX.utils.book_new();
+                    
+                    if (exportType === 'normal') {
+                        // 正常导出格式 - 5列
+                        data = products.map(product => {
+                            return {
+                                '*配置名称': product.skuOptimize || '',
+                                '*外部编码': product.productCode || '',
+                                '*附言（具体的发货内容填写在这里）': product.polishLink || '对不起亲，如果您看到这条信息，证明发货机器人又死机了，这几天多次了，一直调试不好，不过没有关系，我会尽快给您发货或者处理退款的，亲不要急躁哈，半小时未发出，补偿亲♥"1"♥元。发"111"可先下载增品',
+                                '商品分类（选填）': '',
+                                '自动发货开关（不填默认开启）': ''
+                            };
+                        });
+                        
+                        const ws = XLSX.utils.json_to_sheet(data);
+                        XLSX.utils.book_append_sheet(wb, ws, '正常导出');
+                    } else if (exportType === 'backup') {
+                        // 备份格式 - 完整数据
+                        data = products.map(product => {
+                            return {
+                                '标题': product.title || '',
+                                '购买链接': product.buyLink || '',
+                                'sku优化': product.skuOptimize || '',
+                                '原始链接': product.originalLink || '',
+                                '润色链接': product.polishLink || '',
+                                '录入时间': product.recordTime || '',
+                                '商品编码': product.productCode || '',
+                                '新购买地址': product.newBuyAddress || '',
+                                '商品描述': product.productDescription || ''
+                            };
+                        });
+                        
+                        const ws = XLSX.utils.json_to_sheet(data);
+                        XLSX.utils.book_append_sheet(wb, ws, '备份导出');
+                    }
+                    
+                    // 根据文件类型生成相应格式的数据
+                    let buffer;
+                    if (fileType === 'csv') {
+                        // CSV格式只能包含一个工作表
+                        const ws = wb.Sheets[wb.SheetNames[0]];
+                        const csvContent = XLSX.utils.sheet_to_csv(ws);
+                        buffer = new TextEncoder().encode(csvContent);
+                    } else {
+                        // xlsx或xls格式
+                        buffer = XLSX.write(wb, { bookType: fileType, type: 'array' });
+                    }
+                    
+                    return { buffer, fileType, exportType };
+                });
+        }
+        
+        // 保存导出文件
+        function saveExportFile(data, fileName) {
+            const { buffer, fileType } = data;
+            
+            // 根据文件类型设置MIME类型
+            let mimeType;
+            switch (fileType) {
+                case 'xlsx':
+                    mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+                    break;
+                case 'xls':
+                    mimeType = 'application/vnd.ms-excel';
+                    break;
+                case 'csv':
+                    mimeType = 'text/csv;charset=utf-8';
+                    break;
+                default:
+                    mimeType = 'application/octet-stream';
+            }
+            
+            try {
+                // 创建Blob对象
+                const blob = new Blob([buffer], { type: mimeType });
+                
+                // 方法1: 使用a标签下载（主要方法）
+                if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+                    // 针对IE浏览器使用msSaveOrOpenBlob方法
+                    window.navigator.msSaveOrOpenBlob(blob, fileName);
+                    return true;
+                } 
+                
+                // 方法2: 标准下载方式
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+                a.style.display = 'none';
+                
+                // 添加到DOM中
+            document.body.appendChild(a);
+                
+                // 模拟点击下载
+            a.click();
+            
+                // 延迟删除
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                }, 1000);
+                
+                return true;
+            } catch (error) {
+                logError('保存文件失败: ' + error);
+                
+                // 方法3: 如果上述方法失败，尝试使用iframe方式下载
+                try {
+                    const blob = new Blob([buffer], { type: mimeType });
+                    const url = URL.createObjectURL(blob);
+                    
+                    const iframe = document.createElement('iframe');
+                    iframe.style.display = 'none';
+                    iframe.src = url;
+                    document.body.appendChild(iframe);
+                    
+                    setTimeout(() => {
+                        document.body.removeChild(iframe);
+                        URL.revokeObjectURL(url);
+                    }, 1000);
+                    
+                    return true;
+                } catch (err) {
+                    logError('备用下载方法也失败: ' + err);
+                    return false;
+                }
+            }
+        }
+        
+        // 事件监听器设置
+        function setupEventListeners() {
+            // 清除标题按钮
+            elements.clearTitleBtn.addEventListener('click', () => {
+                elements.titleInput.value = '';
+                elements.linksContainer.innerHTML = '';
+            });
+            
+            // 确认标题按钮
+            elements.confirmTitleBtn.addEventListener('click', () => {
+                const query = elements.titleInput.value.trim();
+                if (!query) {
+                    showToast('请输入搜索内容');
+                    return;
+                }
+                
+                showLoader();
+                searchProducts(query)
+                    .then(products => {
+                        displayMatchResults(products);
+                    })
+                    .catch(error => {
+                        showToast('搜索失败: ' + error);
+                    })
+                    .finally(() => {
+                        hideLoader();
+                    });
+            });
+            
+            // 标题输入框回车键
+            elements.titleInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    elements.confirmTitleBtn.click();
+                }
+            });
+            
+            // 清除数据按钮
+            elements.clearDataBtn.addEventListener('click', () => {
+                showModal(modals.clearData);
+            });
+            
+            // 取消清除数据
+            clearDataElements.cancelBtn.addEventListener('click', () => {
+                hideModal(modals.clearData);
+            });
+            
+            // 确认清除数据
+            clearDataElements.confirmBtn.addEventListener('click', () => {
+                hideModal(modals.clearData);
+                showLoader();
+                
+                // 先导出备份数据
+                exportExcel('backup', 'xlsx')
+                    .then(data => {
+                        const now = new Date();
+                        const fileName = `备份_${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}.${data.fileType}`;
+                        return saveExportFile(data, fileName);
+                    })
+                    .then(() => {
+                        return clearAllProducts();
+                    })
+                    .then(() => {
+                        // 清空显示
+                        elements.linksContainer.innerHTML = '';
+                        elements.polishContainer.innerHTML = '';
+                        elements.directoryContainer.innerHTML = '';
+                        elements.titleInput.value = '';
+                        
+                        // 更新总目录标题
+                        elements.directoryTitle.textContent = '总目录共0条';
+                        
+                        // 重置选中商品
+                        selectedProduct = null;
+                        
+                        showToast('数据已清除');
+                    })
+                    .catch(error => {
+                        showToast('清除数据失败: ' + error);
+                    })
+                    .finally(() => {
+                        hideLoader();
+                    });
+            });
+            
+            // 导入数据按钮
+            elements.importDataBtn.addEventListener('click', () => {
+                // 创建文件选择器
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.xls,.xlsx';
+                
+                input.addEventListener('change', (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    
+                    showLoader();
+                    importExcel(file)
+                        .then(products => {
+                            // 基于商品编码查重并更新现有记录
+                            return processImportedProducts(products);
+                        })
+                        .then(result => {
+                            showToast(`成功导入数据: 新增${result.added}条，更新${result.updated}条`);
+                            return loadAndDisplayDirectory();
+                        })
+                        .catch(error => {
+                            showToast('导入失败: ' + error);
+                        })
+                        .finally(() => {
+                            hideLoader();
+                        });
+                });
+                
+                input.click();
+            });
+            
+            // 导出数据按钮
+            elements.exportDataBtn.addEventListener('click', () => {
+                // 创建导出格式选择对话框
+                const modal = document.createElement('div');
+                modal.className = 'modal';
+                modal.style.display = 'flex';
+                
+                const modalContent = document.createElement('div');
+                modalContent.className = 'modal-content';
+                
+                const modalTitle = document.createElement('div');
+                modalTitle.className = 'modal-title';
+                modalTitle.textContent = '选择导出方式';
+                
+                const modalBody = document.createElement('div');
+                modalBody.className = 'modal-body';
+                modalBody.style.display = 'flex';
+                modalBody.style.flexDirection = 'column';
+                modalBody.style.gap = '10px';
+                
+                // 导出方式说明
+                const exportDescription = document.createElement('div');
+                exportDescription.style.marginBottom = '15px';
+                exportDescription.style.fontSize = '14px';
+                exportDescription.style.color = '#666';
+                exportDescription.innerHTML = '<b>正常导出</b>：仅包含发货必要的5列数据<br><b>备份导出</b>：包含完整的所有数据';
+                modalBody.appendChild(exportDescription);
+                
+                // 导出选项
+                const exportOptions = [
+                    { id: 'normal', name: '正常导出', format: 'xlsx' },
+                    { id: 'backup', name: '备份导出', format: 'xlsx' }
+                ];
+                
+                exportOptions.forEach(option => {
+                    const button = document.createElement('button');
+                    button.className = 'small-btn';
+                    button.textContent = option.name;
+                    button.style.margin = '5px 0';
+                    button.addEventListener('click', () => {
+                        document.body.removeChild(modal);
+                        
+                        showLoader();
+                        exportExcel(option.id, option.format)
+                            .then(data => {
+                                const now = new Date();
+                                const dateStr = `${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}`;
+                                const fileName = option.id === 'normal' ? 
+                                    `正常导出_${dateStr}.${option.format}` : 
+                                    `备份导出_${dateStr}.${option.format}`;
+                                
+                                const success = saveExportFile(data, fileName);
+                                if (success) {
+                                    showToast(`${option.name}成功，请检查下载文件夹`);
+                                } else {
+                                    // 显示备用下载方式提示
+                                    showToast('自动下载失败，请尝试手动保存', 5000);
+                                    
+                                    // 创建手动保存对话框
+                                    setTimeout(() => {
+                                        const manualModal = document.createElement('div');
+                                        manualModal.className = 'modal';
+                                        manualModal.style.display = 'flex';
+                                        
+                                        const manualContent = document.createElement('div');
+                                        manualContent.className = 'modal-content';
+                                        
+                                        const manualTitle = document.createElement('div');
+                                        manualTitle.className = 'modal-title';
+                                        manualTitle.textContent = '手动保存文件';
+                                        
+                                        const manualBody = document.createElement('div');
+                                        manualBody.className = 'modal-body';
+                                        manualBody.innerHTML = '请点击下方按钮，然后在打开的页面中右键选择"另存为"来保存文件：';
+                                        
+                                        const saveButton = document.createElement('button');
+                                        saveButton.className = 'small-btn';
+                                        saveButton.textContent = '打开文件';
+                                        saveButton.style.margin = '15px auto';
+                                        saveButton.style.display = 'block';
+                                        
+                                        saveButton.addEventListener('click', () => {
+                                            try {
+                                                const blob = new Blob([data.buffer], { 
+                                                    type: option.format === 'csv' ? 'text/csv' : 'application/octet-stream' 
+                                                });
+                                                const url = URL.createObjectURL(blob);
+                                                window.open(url, '_blank');
+                                                
+                                                setTimeout(() => {
+                                                    URL.revokeObjectURL(url);
+                                                }, 60000); // 给用户足够的时间保存
+                                            } catch (error) {
+                                                logError('手动保存失败: ' + error);
+                                                showToast('保存失败，请联系开发者');
+                                            }
+                                        });
+                                        
+                                        const closeButton = document.createElement('button');
+                                        closeButton.className = 'small-btn';
+                                        closeButton.textContent = '关闭';
+                                        closeButton.style.margin = '5px auto';
+                                        closeButton.style.display = 'block';
+                                        closeButton.addEventListener('click', () => {
+                                            document.body.removeChild(manualModal);
+                                        });
+                                        
+                                        manualBody.appendChild(saveButton);
+                                        manualContent.appendChild(manualTitle);
+                                        manualContent.appendChild(manualBody);
+                                        manualContent.appendChild(closeButton);
+                                        manualModal.appendChild(manualContent);
+                                        
+                                        document.body.appendChild(manualModal);
+                                    }, 500);
+                                }
+                            })
+                            .catch(error => {
+                                showToast('导出失败: ' + error);
+                                logError('导出失败: ' + error);
+                            })
+                            .finally(() => {
+                                hideLoader();
+                            });
+                    });
+                    modalBody.appendChild(button);
+                });
+                
+                const cancelButton = document.createElement('button');
+                cancelButton.className = 'small-btn';
+                cancelButton.textContent = '取消';
+                cancelButton.style.marginTop = '15px';
+                cancelButton.addEventListener('click', () => {
+                    document.body.removeChild(modal);
+                });
+                
+                modalContent.appendChild(modalTitle);
+                modalContent.appendChild(modalBody);
+                modalContent.appendChild(cancelButton);
+                modal.appendChild(modalContent);
+                
+                document.body.appendChild(modal);
+            });
+            
+            // 设置按钮
+            elements.settingsBtn.addEventListener('click', () => {
+                showModal(modals.settings);
+            });
+            
+            // 取消设置
+            settingsElements.cancelBtn.addEventListener('click', () => {
+                hideModal(modals.settings);
+            });
+            
+            // 保存设置
+            settingsElements.saveBtn.addEventListener('click', () => {
+                saveSettings();
+                hideModal(modals.settings);
+                showToast('设置已保存');
+            });
+            
+            // 导入按钮
+            elements.importBtn.addEventListener('click', () => {
+                if (!selectedProduct) {
+                    showToast('请先选择一个商品');
+                    return;
+                }
+                
+                // 显示导入对话框
+                importLinkElements.input.value = '';
+                showModal(modals.importLink);
+                
+                // 尝试读取剪贴板内容
+                if (navigator.clipboard && navigator.clipboard.readText) {
+                    navigator.clipboard.readText()
+                        .then(text => {
+                            if (text) {
+                                importLinkElements.input.value = text;
+                            }
+                        })
+                        .catch(err => {
+                            logError('读取剪贴板失败: ' + err);
+                        });
+                }
+            });
+            
+            // 取消导入
+            importLinkElements.cancelBtn.addEventListener('click', () => {
+                hideModal(modals.importLink);
+            });
+            
+            // 清空输入框
+            importLinkElements.clearBtn.addEventListener('click', () => {
+                importLinkElements.input.value = '';
+            });
+            
+            // 确认导入
+            importLinkElements.confirmBtn.addEventListener('click', () => {
+                const originalLinkText = importLinkElements.input.value.trim();
+                if (!originalLinkText) {
+                    showToast('请输入原始链接');
+                    return;
+                }
+                
+                hideModal(modals.importLink);
+                showLoader();
+                
+                // 保存原始链接
+                selectedProduct.originalLink = originalLinkText;
+                
+                // 生成润色链接
+                selectedProduct.polishLink = polishLink(originalLinkText);
+                
+                // 记录时间
+                const now = new Date();
+                selectedProduct.recordTime = now.toISOString().split('T')[0]; // 格式: YYYY-MM-DD
+                
+                // 保存到数据库
+                addOrUpdateProduct(selectedProduct)
+                    .then(() => {
+                        // 显示润色结果
+                        showPolishContent(selectedProduct.polishLink);
+                        
+                        // 刷新总目录
+                        return loadAndDisplayDirectory();
+                    })
+                    .then(() => {
+                        showToast('导入成功');
+                    })
+                    .catch(error => {
+                        showToast('保存失败: ' + error);
+                    })
+                    .finally(() => {
+                        hideLoader();
+                    });
+            });
+            
+            // 复制按钮
+            elements.copyBtn.addEventListener('click', () => {
+                const text = elements.polishContainer.textContent;
+                if (!text) {
+                    showToast('没有内容可复制');
+                    return;
+                }
+                
+                copyToClipboard(text);
+                showToast('已复制到剪贴板');
+                navigator.vibrate && navigator.vibrate(50);
+            });
+            
+            // 标题点击计数（调试模式特殊入口）
+            let titleClickCount = 0;
+            const headerTitle = document.querySelector('.header h1');
+            headerTitle.addEventListener('click', () => {
+                titleClickCount++;
+                if (titleClickCount >= 5) {
+                    elements.devPanel.style.display = elements.devPanel.style.display === 'block' ? 'none' : 'block';
+                    titleClickCount = 0;
+                }
+            });
+            
+            // 添加应用按钮
+            elements.addAppBtn.addEventListener('click', () => {
+                // 清空输入框
+                addAppElements.nameInput.value = '';
+                addAppElements.urlInput.value = '';
+                addAppElements.iconInput.value = '';
+                
+                // 创建常用应用选择区域
+                const commonAppsContainer = document.createElement('div');
+                commonAppsContainer.style.marginBottom = '15px';
+                commonAppsContainer.style.display = 'flex';
+                commonAppsContainer.style.flexWrap = 'wrap';
+                commonAppsContainer.style.gap = '10px';
+                commonAppsContainer.style.justifyContent = 'center';
+                
+                // 添加标题
+                const appsTitle = document.createElement('div');
+                appsTitle.textContent = '常用应用:';
+                appsTitle.style.width = '100%';
+                appsTitle.style.marginBottom = '5px';
+                commonAppsContainer.appendChild(appsTitle);
+                
+                // 添加常用应用图标
+                commonApps.forEach(app => {
+                    const appIcon = document.createElement('div');
+                    appIcon.style.width = '40px';
+                    appIcon.style.height = '40px';
+                    appIcon.style.borderRadius = '8px';
+                    appIcon.style.overflow = 'hidden';
+                    appIcon.style.display = 'flex';
+                    appIcon.style.alignItems = 'center';
+                    appIcon.style.justifyContent = 'center';
+                    appIcon.style.backgroundColor = '#f0f0f0';
+                    appIcon.style.cursor = 'pointer';
+                    appIcon.title = app.name;
+                    
+                    const img = document.createElement('img');
+                    img.src = app.icon;
+                    img.alt = app.name;
+                    img.style.maxWidth = '100%';
+                    img.style.maxHeight = '100%';
+                    
+                    appIcon.appendChild(img);
+                    
+                    // 点击选择应用
+                    appIcon.addEventListener('click', () => {
+                        addAppElements.nameInput.value = app.name;
+                        addAppElements.urlInput.value = app.url;
+                        addAppElements.iconInput.value = app.icon;
+                    });
+                    
+                    commonAppsContainer.appendChild(appIcon);
+                });
+                
+                // 在模态对话框中添加常用应用区域
+                const modalBody = document.querySelector('#addAppModal .modal-body');
+                modalBody.insertBefore(commonAppsContainer, modalBody.firstChild);
+                
+                // 添加说明文本
+                const noteText = document.createElement('div');
+                noteText.textContent = '注意: URL Scheme功能受设备和浏览器限制，可能并非所有应用在所有设备上都能正常打开。';
+                noteText.style.fontSize = '12px';
+                noteText.style.color = '#666';
+                noteText.style.marginTop = '10px';
+                modalBody.appendChild(noteText);
+                
+                showModal(modals.addApp);
+            });
+            
+            // 取消添加应用
+            addAppElements.cancelBtn.addEventListener('click', () => {
+                hideModal(modals.addApp);
+            });
+            
+            // 确认添加应用
+            addAppElements.confirmBtn.addEventListener('click', () => {
+                const name = addAppElements.nameInput.value.trim();
+                const url = addAppElements.urlInput.value.trim();
+                const iconUrl = addAppElements.iconInput.value.trim();
+                
+                if (!name || !url) {
+                    showToast('请填写完整的应用名称和链接');
+                    return;
+                }
+                
+                hideModal(modals.addApp);
+                
+                // 添加应用
+                if (addQuickLaunchApp(name, url, iconUrl)) {
+                    showToast('应用已添加');
+                }
+            });
+            
+            // 清除润色数据
+            let polishPressTimer;
+            elements.polishContainer.addEventListener('touchstart', () => {
+                if (!selectedProduct || !selectedProduct.polishLink) return;
+                
+                polishPressTimer = setTimeout(() => {
+                    showModal(modals.clearPolishData);
+                    navigator.vibrate && navigator.vibrate(50);
+                }, 800);
+            });
+            
+            elements.polishContainer.addEventListener('touchend', () => {
+                clearTimeout(polishPressTimer);
+            });
+            
+            elements.polishContainer.addEventListener('touchmove', () => {
+                clearTimeout(polishPressTimer);
+            });
+            
+            // 取消清除润色数据
+            clearPolishDataElements.cancelBtn.addEventListener('click', () => {
+                hideModal(modals.clearPolishData);
+            });
+            
+            // 确认清除润色数据
+            clearPolishDataElements.confirmBtn.addEventListener('click', () => {
+                hideModal(modals.clearPolishData);
+                showLoader();
+                
+                clearPolishData()
+                    .then(() => {
+                        showToast('数据已清除');
+                    })
+                    .catch(error => {
+                        showToast('清除失败: ' + error);
+                    })
+                    .finally(() => {
+                        hideLoader();
+                    });
+            });
+            
+            // 购买地址和群号处理按钮
+            elements.addressGroupBtn.addEventListener('click', () => {
+                if (!selectedProduct) {
+                    showToast('请先选择一个商品');
+                    return;
+                }
+                
+                // 初始化输入框值
+                addressGroupElements.newBuyAddressInput.value = selectedProduct.newBuyAddress || '';
+                addressGroupElements.groupNumberInput.value = '';
+                
+                // 显示对话框
+                showModal(modals.addressGroup);
+            });
+            
+            // 取消购买地址和群号处理
+            addressGroupElements.cancelBtn.addEventListener('click', () => {
+                hideModal(modals.addressGroup);
+            });
+            
+            // 保存导出按钮
+            addressGroupElements.saveExportBtn.addEventListener('click', () => {
+                const newBuyAddress = addressGroupElements.newBuyAddressInput.value.trim();
+                const groupNumber = addressGroupElements.groupNumberInput.value.trim();
+                
+                if (!newBuyAddress && !groupNumber) {
+                    showToast('请填写至少一项内容');
+                    return;
+                }
+                
+                // 处理新购买地址
+                if (newBuyAddress) {
+                    selectedProduct.newBuyAddress = newBuyAddress;
+                    
+                    // 保存到数据库
+                    addOrUpdateProduct(selectedProduct)
+                        .then(() => {
+                            showToast('新购买地址已保存');
+                            
+                            // 刷新显示
+                            searchProducts(elements.titleInput.value.trim())
+                                .then(products => {
+                                    displayMatchResults(products);
+                                });
+                        })
+                        .catch(error => {
+                            showToast('保存失败: ' + error);
+                        });
+                }
+                
+                // 处理群号信息导出TXT
+                if (groupNumber) {
+                    try {
+                        // 获取TXT模板设置
+                        const templates = JSON.parse(localStorage.getItem('txtTemplates') || '{}');
+                        
+                        // 准备导出内容
+                        const prefixText = templates.prefix || '因资源敏感，网盘链接容易被和谐，为保证您的权益和后续更新的需要，请按照下面的方式提取您的资料\n';
+                        const suffixText = templates.suffix || '\n如果正好出现网盘群人数满了加不进去的情况，请联系我，10分钟内解决问题';
+                        const exportContent = prefixText + groupNumber + suffixText;
+                        
+                        // 准备文件名
+                        const now = new Date();
+                        const dateStr = `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`;
+                        const fileName = `${selectedProduct.skuOptimize || ''}${selectedProduct.productCode || ''} ${dateStr}.txt`;
+                        
+                        // 创建并下载TXT文件
+                        const blob = new Blob([exportContent], { type: 'text/plain;charset=utf-8' });
+                        
+                        if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+                            // 针对IE浏览器
+                            window.navigator.msSaveOrOpenBlob(blob, fileName);
+                        } else {
+                            // 标准下载方式
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = fileName;
+                            a.style.display = 'none';
+                            
+                            // 添加到DOM中
+                            document.body.appendChild(a);
+                            
+                            // 模拟点击下载
+                            a.click();
+                            
+                            // 延迟删除
+                            setTimeout(() => {
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(url);
+                            }, 1000);
+                        }
+                        
+                        showToast('群号处理文件已导出');
+                    } catch (error) {
+                        showToast('导出失败: ' + error);
+                    }
+                }
+                
+                hideModal(modals.addressGroup);
+            });
+            
+            // TXT润色按钮
+            elements.txtPolishBtn.addEventListener('click', () => {
+                // 从localStorage加载设置
+                const templates = JSON.parse(localStorage.getItem('txtTemplates') || '{}');
+                
+                // 初始化输入框的默认值（如果有保存的设置则使用保存的设置）
+                txtPolishElements.prefixInput.value = templates.prefix || '因资源敏感，网盘链接容易被和谐，为保证您的权益和后续更新的需要，请按照下面的方式提取您的资料\n';
+                txtPolishElements.suffixInput.value = templates.suffix || '\n如果正好出现网盘群人数满了加不进去的情况，请联系我，10分钟内解决问题';
+                
+                // 显示对话框
+                showModal(modals.txtPolish);
+            });
+            
+            // 取消TXT润色
+            txtPolishElements.cancelBtn.addEventListener('click', () => {
+                hideModal(modals.txtPolish);
+            });
+            
+            // 保存TXT润色设置
+            txtPolishElements.saveBtn.addEventListener('click', () => {
+                const prefixText = txtPolishElements.prefixInput.value;
+                const suffixText = txtPolishElements.suffixInput.value;
+                
+                // 保存到localStorage
+                const templates = {
+                    prefix: prefixText,
+                    suffix: suffixText
+                };
+                
+                localStorage.setItem('txtTemplates', JSON.stringify(templates));
+                
+                hideModal(modals.txtPolish);
+                showToast('TXT润色模板已保存');
+            });
+            
+            // 恢复备份按钮
+            elements.restoreBackupBtn.addEventListener('click', () => {
+                // 显示备份列表
+                showBackupsList();
+                showModal(modals.restoreBackup);
+            });
+            
+            // 取消恢复备份
+            restoreBackupElements.cancelBtn.addEventListener('click', () => {
+                hideModal(modals.restoreBackup);
+            });
+            
+            // 确认恢复备份
+            restoreBackupElements.confirmBtn.addEventListener('click', () => {
+                const selectedBackup = document.querySelector('#backupsList .backup-item.selected');
+                if (!selectedBackup) {
+                    showToast('请选择一个备份');
+                    return;
+                }
+                
+                const backupId = selectedBackup.dataset.id;
+                restoreFromBackup(backupId);
+                hideModal(modals.restoreBackup);
+            });
+        }
+        
+        // 在文档加载完成后初始化应用
+        document.addEventListener('DOMContentLoaded', () => {
+            // 设置事件监听器
+            setupEventListeners();
+            
+            // 初始化应用
+            initApp();
+            
+            // 捕获全局错误
+            window.onerror = (message, source, lineno, colno, error) => {
+                logError(`错误: ${message} at ${source}:${lineno}:${colno}`);
+                return false;
+            };
+            
+            // 捕获未处理的Promise错误
+            window.addEventListener('unhandledrejection', (event) => {
+                logError(`Promise错误: ${event.reason}`);
+            });
+        });
+        
+        // 清除润色数据
+        function clearPolishData() {
+            if (!selectedProduct) {
+                showToast('没有选中的商品');
+                return Promise.reject('没有选中的商品');
+            }
+            
+            // 清除原始链接和润色链接
+            selectedProduct.originalLink = '';
+            selectedProduct.polishLink = '';
+            
+            // 清除录入时间
+            selectedProduct.recordTime = '';
+            
+            // 保存到数据库
+            return addOrUpdateProduct(selectedProduct)
+                .then(() => {
+                    // 清空润色文本框
+                    showPolishContent('');
+                    
+                    // 刷新总目录
+                    return loadAndDisplayDirectory();
+                });
+        }
+        
+        // 导入Excel
+        function importExcel(file) {
+            return ensureXLSX()
+                .then(() => {
+                    return new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        
+                        reader.onload = (e) => {
+                            try {
+                                const data = new Uint8Array(e.target.result);
+                                const workbook = XLSX.read(data, { type: 'array' });
+                                
+                                // 获取第一个工作表
+                                const worksheetName = workbook.SheetNames[0];
+                                const worksheet = workbook.Sheets[worksheetName];
+                                
+                                // 转换为JSON
+                                const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                                
+                                // 检查表头
+                                if (rows.length === 0) {
+                                    reject('Excel文件为空');
+                                    return;
+                                }
+                                
+                                // 查找必要字段的索引
+                                const headers = rows[0].map(h => String(h).trim());
+                                const titleIndex = headers.indexOf('标题');
+                                const buyLinkIndex = headers.indexOf('购买链接');
+                                const skuOptimizeIndex = headers.indexOf('sku优化');
+                                const originalLinkIndex = headers.indexOf('原始链接');
+                                const polishLinkIndex = headers.indexOf('润色链接');
+                                const recordTimeIndex = headers.indexOf('录入时间');
+                                const productCodeIndex = headers.indexOf('商品编码');
+                                const newBuyAddressIndex = headers.indexOf('新购买地址');
+                                const productDescriptionIndex = headers.indexOf('商品描述');
+                                
+                                // 检查是否有必要的字段
+                                if (titleIndex === -1 || buyLinkIndex === -1) {
+                                    reject('Excel格式错误：缺少标题或购买链接字段');
+                                    return;
+                                }
+                                
+                                // 处理数据行
+                                const products = [];
+                                for (let i = 1; i < rows.length; i++) {
+                                    const row = rows[i];
+                                    if (!row[titleIndex] && !row[buyLinkIndex]) continue; // 跳过空行
+                                    
+                                    const product = {
+                                        title: row[titleIndex] || '',
+                                        buyLink: row[buyLinkIndex] || '',
+                                        skuOptimize: skuOptimizeIndex !== -1 ? (row[skuOptimizeIndex] || '') : '',
+                                        originalLink: originalLinkIndex !== -1 ? (row[originalLinkIndex] || '') : '',
+                                        polishLink: polishLinkIndex !== -1 ? (row[polishLinkIndex] || '') : '',
+                                        recordTime: recordTimeIndex !== -1 ? (row[recordTimeIndex] || '') : '',
+                                        productCode: productCodeIndex !== -1 ? (row[productCodeIndex] || '') : '',
+                                        newBuyAddress: newBuyAddressIndex !== -1 ? (row[newBuyAddressIndex] || '') : '',
+                                        productDescription: productDescriptionIndex !== -1 ? (row[productDescriptionIndex] || '') : ''
+                                    };
+                                    
+                                    // 如果有原始链接但没有润色链接，自动润色
+                                    if (product.originalLink && !product.polishLink) {
+                                        product.polishLink = polishLink(product.originalLink);
+                                        
+                                        // 如果没有录入时间，设置为当前日期
+                                        if (!product.recordTime) {
+                                            const now = new Date();
+                                            product.recordTime = now.toISOString().split('T')[0]; // 格式: YYYY-MM-DD
+                                        }
+                                    }
+                                    
+                                    products.push(product);
+                                }
+                                
+                                resolve(products);
+                            } catch (error) {
+                                logError('解析Excel失败: ' + error);
+                                reject('解析Excel失败: ' + error);
+                            }
+                        };
+                        
+                        reader.onerror = () => {
+                            reject('读取文件失败');
+                        };
+                        
+                        reader.readAsArrayBuffer(file);
+                    });
+                });
+        }
+        
+        // 显示匹配结果
+        function displayMatchResults(products) {
+            elements.linksContainer.innerHTML = '';
+            
+            if (products.length === 0) {
+                const noResultElem = document.createElement('div');
+                noResultElem.textContent = '没有找到匹配结果';
+                noResultElem.style.padding = '10px';
+                noResultElem.style.textAlign = 'center';
+                noResultElem.style.color = '#666';
+                elements.linksContainer.appendChild(noResultElem);
+                return;
+            }
+            
+                            // 在搜索结果顶部添加说明
+                if (products.length > 0) {
+                    const query = elements.titleInput.value.trim();
+                    if (query) {
+                        // 判断是否启用了高级相似度算法
+                        const useAdvancedMode = query.length > 45;
+                        
+                        const infoElem = document.createElement('div');
+                        infoElem.innerHTML = `找到 ${products.length} 个匹配结果，按相似度排序` +
+                            (useAdvancedMode ? `<br><small>文本长度超过45个字符，已启用高级相似度算法</small>` : '');
+                        infoElem.style.padding = '10px';
+                        infoElem.style.textAlign = 'center';
+                        infoElem.style.color = '#666';
+                        infoElem.style.fontSize = '14px';
+                        infoElem.style.fontWeight = 'bold';
+                        infoElem.style.backgroundColor = '#f9f9f9';
+                        infoElem.style.borderRadius = '5px';
+                        infoElem.style.marginBottom = '8px';
+                        elements.linksContainer.appendChild(infoElem);
+                    }
+            }
+            
+            products.forEach(product => {
+                // 计算当前产品与搜索词的相似度
+                let similarity = 0;
+                const query = elements.titleInput.value.trim();
+                if (query && product.title) {
+                    similarity = calculateTextSimilarity(product.title, query);
+                }
+                
+                // 检查原始链接是否有多行
+                const buyLinks = product.buyLink.split('\n');
+                
+                buyLinks.forEach(link => {
+                    const item = document.createElement('div');
+                    item.className = 'link-item';
+                    
+                    const titleElem = document.createElement('div');
+                    titleElem.className = 'link-title';
+                    titleElem.textContent = product.title || '无标题';
+                    
+                    // 添加相似度指示器 - 对于完全匹配(100%)的结果不显示相似度
+                    if (similarity > 0 && similarity < 1) {
+                        const similarityPercent = Math.round(similarity * 100);
+                        const similarityElem = document.createElement('span');
+                        similarityElem.textContent = ` (相似度: ${similarityPercent}%)`;
+                        similarityElem.style.fontSize = '12px';
+                        similarityElem.style.color = similarityPercent > 80 ? '#2e8b57' : 
+                                                   (similarityPercent > 60 ? '#ff8c00' : '#777');
+                        titleElem.appendChild(similarityElem);
+                    }
+                    // 为完全匹配添加指示标记
+                    else if (similarity === 1) {
+                        const exactMatchElem = document.createElement('span');
+                        exactMatchElem.textContent = " [精确匹配]";
+                        exactMatchElem.style.fontSize = '12px';
+                        exactMatchElem.style.color = '#2e8b57';
+                        exactMatchElem.style.fontWeight = 'bold';
+                        titleElem.appendChild(exactMatchElem);
+                    }
+                    
+                    const linkElem = document.createElement('div');
+                    linkElem.className = 'link-url';
+                    linkElem.textContent = link || '无链接';
+                    
+                    item.appendChild(titleElem);
+                    item.appendChild(linkElem);
+                    
+                    // 添加点击事件
+                    item.addEventListener('click', () => {
+                        // 移除其他选中状态
+                        const prevSelected = elements.linksContainer.querySelector('.selected');
+                        if (prevSelected) {
+                            prevSelected.classList.remove('selected');
+                        }
+                        
+                        // 添加选中状态
+                        item.classList.add('selected');
+                        
+                        // 更新选中商品
+                        selectedProduct = product;
+                        
+                        // 更新总目录以显示选中商品的详细信息
+                        displayDirectoryItems([selectedProduct]);
+                        
+                        // 显示润色链接（如果有）
+                        showPolishContent(product.polishLink || '');
+                        
+                        // 更新导入按钮状态
+                        updateImportButtonState();
+                    });
+                    
+                    // 添加长按复制功能
+                    let pressTimer;
+                    item.addEventListener('touchstart', () => {
+                        pressTimer = setTimeout(() => {
+                            copyToClipboard(link);
+                            showToast('已复制购买链接');
+                            navigator.vibrate && navigator.vibrate(50);
+                        }, 800);
+                    });
+                    
+                    item.addEventListener('touchend', () => {
+                        clearTimeout(pressTimer);
+                    });
+                    
+                    item.addEventListener('touchmove', () => {
+                        clearTimeout(pressTimer);
+                    });
+                    
+                    elements.linksContainer.appendChild(item);
+                });
+                
+                // 如果有新购买地址，显示它
+                if (product.newBuyAddress) {
+                    const item = document.createElement('div');
+                    item.className = 'link-item';
+                    
+                    const titleElem = document.createElement('div');
+                    titleElem.className = 'link-title';
+                    titleElem.textContent = product.title || '无标题';
+                    
+                    const linkElem = document.createElement('div');
+                    linkElem.className = 'link-url';
+                    linkElem.textContent = '新购买地址';  // 简化显示
+                    
+                    item.appendChild(titleElem);
+                    item.appendChild(linkElem);
+                    
+                    // 添加点击事件
+                    item.addEventListener('click', () => {
+                        // 移除其他选中状态
+                        const prevSelected = elements.linksContainer.querySelector('.selected');
+                        if (prevSelected) {
+                            prevSelected.classList.remove('selected');
+                        }
+                        
+                        // 添加选中状态
+                        item.classList.add('selected');
+                        
+                        // 更新选中商品
+                        selectedProduct = product;
+                        
+                        // 更新总目录以显示选中商品的详细信息
+                        displayDirectoryItems([selectedProduct]);
+                        
+                        // 显示润色链接（如果有）
+                        showPolishContent(product.polishLink || '');
+                        
+                        // 更新导入按钮状态
+                        updateImportButtonState();
+                    });
+                    
+                    // 添加长按复制功能 - 复制新购买地址
+                    let pressTimer;
+                    item.addEventListener('touchstart', () => {
+                        pressTimer = setTimeout(() => {
+                            copyToClipboard(product.newBuyAddress);
+                            showToast('已复制新购买地址');
+                            navigator.vibrate && navigator.vibrate(50);
+                        }, 800);
+                    });
+                    
+                    item.addEventListener('touchend', () => {
+                        clearTimeout(pressTimer);
+                    });
+                    
+                    item.addEventListener('touchmove', () => {
+                        clearTimeout(pressTimer);
+                    });
+                    
+                    elements.linksContainer.appendChild(item);
+                }
+            });
+        }
+        
+        // 在总目录中标记选中项，但不滚动
+        function markDirectoryItem(product) {
+            // 不再重新加载总目录，只标记选中项
+            // 移除所有选中标记
+            const allItems = elements.directoryContainer.querySelectorAll('.directory-item');
+            allItems.forEach(item => {
+                item.classList.remove('selected');
+            });
+            
+            // 找到对应项并标记
+            for (let i = 0; i < allItems.length; i++) {
+                const item = allItems[i];
+                const titleElement = item.querySelector('.directory-title-text');
+                
+                if (titleElement.textContent === product.title) {
+                    // 选中该项
+                    item.classList.add('selected');
+                    break;
+                }
+            }
+        }
+        
+        // 显示备份列表
+        function showBackupsList() {
+            // 清空列表
+            restoreBackupElements.backupsList.innerHTML = '';
+            
+            const backups = [];
+            // 获取所有备份
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key.startsWith('autoBackup_')) {
+                    try {
+                        // 解析备份数据以获取项目数量
+                        const data = JSON.parse(localStorage.getItem(key));
+                        const count = data ? data.length : 0;
+                        
+                        // 解析日期
+                        const dateStr = key.replace('autoBackup_', '');
+                        const year = dateStr.substring(0, 4);
+                        const month = dateStr.substring(4, 6);
+                        const day = dateStr.substring(6, 8);
+                        const hour = dateStr.substring(9, 11) || '00';
+                        const minute = dateStr.substring(11, 13) || '00';
+                        
+                        backups.push({
+                            id: key,
+                            date: new Date(`${year}-${month}-${day}T${hour}:${minute}:00`),
+                            formattedDate: `${year}年${month}月${day}日 ${hour}:${minute}`,
+                            count: count
+                        });
+                    } catch (e) {
+                        // 跳过无效的备份
+                        console.error('解析备份失败:', e);
+                    }
+                }
+            }
+            
+            // 按日期排序，最新的在前
+            backups.sort((a, b) => b.date - a.date);
+            
+            // 添加到列表
+            if (backups.length === 0) {
+                const noBackup = document.createElement('div');
+                noBackup.textContent = '没有可用的备份';
+                noBackup.style.padding = '10px';
+                noBackup.style.textAlign = 'center';
+                noBackup.style.color = '#666';
+                restoreBackupElements.backupsList.appendChild(noBackup);
+                restoreBackupElements.confirmBtn.disabled = true;
+                restoreBackupElements.confirmBtn.style.opacity = '0.5';
+                return;
+            }
+            
+            restoreBackupElements.confirmBtn.disabled = false;
+            restoreBackupElements.confirmBtn.style.opacity = '1';
+            
+            backups.forEach(backup => {
+                const item = document.createElement('div');
+                item.className = 'backup-item';
+                item.dataset.id = backup.id;
+                item.style.padding = '10px';
+                item.style.margin = '5px 0';
+                item.style.backgroundColor = '#f0f0f0';
+                item.style.borderRadius = '5px';
+                item.style.cursor = 'pointer';
+                
+                const dateSpan = document.createElement('div');
+                dateSpan.textContent = backup.formattedDate;
+                dateSpan.style.fontWeight = 'bold';
+                
+                const countSpan = document.createElement('div');
+                countSpan.textContent = `共${backup.count}条数据`;
+                countSpan.style.fontSize = '12px';
+                countSpan.style.color = '#666';
+                
+                item.appendChild(dateSpan);
+                item.appendChild(countSpan);
+                
+                // 点击选择
+                item.addEventListener('click', () => {
+                    // 移除其他选中项
+                    document.querySelectorAll('#backupsList .backup-item').forEach(el => {
+                        el.classList.remove('selected');
+                        el.style.backgroundColor = '#f0f0f0';
+                    });
+                    
+                    // 添加选中样式
+                    item.classList.add('selected');
+                    item.style.backgroundColor = '#d0e9ff';
+                });
+                
+                restoreBackupElements.backupsList.appendChild(item);
+            });
+        }
+        
+        // 从备份恢复数据
+        function restoreFromBackup(backupId) {
+            try {
+                showLoader();
+                
+                const backupData = localStorage.getItem(backupId);
+                if (!backupData) {
+                    showToast('备份数据不存在');
+                    hideLoader();
+                    return;
+                }
+                
+                // 解析备份数据
+                const products = JSON.parse(backupData);
+                
+                // 先导出当前数据备份
+                exportExcel('backup', 'xlsx')
+                    .then(data => {
+                        // 生成文件名
+                        const now = new Date();
+                        const fileName = `恢复前备份_${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}.${data.fileType}`;
+                        return saveExportFile(data, fileName);
+                    })
+                    .then(() => {
+                        // 清除当前数据
+                        return clearAllProducts();
+                    })
+                    .then(() => {
+                        // 导入备份数据
+                        const promises = products.map(product => addOrUpdateProduct(product));
+                        return Promise.all(promises);
+                    })
+                    .then(() => {
+                        // 刷新目录
+                        return loadAndDisplayDirectory();
+                    })
+                    .then(() => {
+                        showToast('恢复成功');
+                    })
+                    .catch(error => {
+                        showToast('恢复失败: ' + error);
+                        logError('恢复失败: ' + error);
+                    })
+                    .finally(() => {
+                        hideLoader();
+                    });
+            } catch (error) {
+                hideLoader();
+                showToast('恢复失败: ' + error);
+                logError('恢复失败: ' + error);
+            }
+        }
+        
+        // 根据商品编码查找产品
+        function findProductByCode(productCode) {
+            return new Promise(async (resolve, reject) => {
+                try {
+                    if (!productCode) {
+                        resolve(null);
+                        return;
+                    }
+                    
+                    // 检查用户是否登录
+                    if (!currentUser) {
+                        showLoginModal();
+                        reject('请先登录');
+                        return;
+                    }
+                    
+                    // 使用LeanCloud查询
+                    const query = new AV.Query('Product');
+                    query.equalTo('productCode', productCode);
+                    query.equalTo('user', currentUser); // 只查询当前用户的数据
+                    
+                    const results = await query.find();
+                    
+                    if (results && results.length > 0) {
+                        // 将LeanCloud对象转换为普通JS对象
+                        const product = results[0].toJSON();
+                        product.id = product.objectId; // 兼容旧代码，将objectId也设置为id
+                        resolve(product); // 返回第一个匹配的产品
+                    } else {
+                        resolve(null);
+                    }
+                } catch (error) {
+                    logError('根据商品编码查找产品失败: ' + error);
+                    reject('查找失败');
+                }
+            });
+        }
+        
+        // 处理导入的产品，基于商品编码进行查重与更新
+        function processImportedProducts(products) {
+            let added = 0;
+            let updated = 0;
+            
+            // 依次处理每个产品
+            return products.reduce((promise, product) => {
+                return promise.then(() => {
+                    // 如果没有商品编码，直接添加为新记录
+                    if (!product.productCode) {
+                        return addOrUpdateProduct(product)
+                            .then(() => {
+                                added++;
+                            });
+                    }
+                    
+                    // 如果有商品编码，先检查是否存在
+                    return findProductByCode(product.productCode)
+                        .then(existingProduct => {
+                            if (existingProduct) {
+                                // 存在则更新，保留原ID
+                                product.id = existingProduct.id;
+                                
+                                // 合并数据，确保不丢失现有数据
+                                Object.keys(product).forEach(key => {
+                                    // 如果导入数据中该字段为空但现有数据有值，保留现有值
+                                    if (!product[key] && existingProduct[key]) {
+                                        product[key] = existingProduct[key];
+                                    }
+                                });
+                                
+                                return addOrUpdateProduct(product)
+                                    .then(() => {
+                                        updated++;
+                                    });
+                            } else {
+                                // 不存在则添加为新记录
+                                return addOrUpdateProduct(product)
+                                    .then(() => {
+                                        added++;
+                                    });
+                            }
+                        });
+                });
+            }, Promise.resolve())
+            .then(() => {
+                return { added, updated };
+            });
+        }
+    </script>
+</body>
+</html> 
