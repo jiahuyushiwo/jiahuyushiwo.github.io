@@ -1214,18 +1214,16 @@
             const loginError = document.getElementById('loginError');
             const connectionStatus = document.getElementById('connectionStatus');
             
-            // 检查是否处于离线模式
+            // 如果在调用此函数前就因连接失败进入离线模式，则保留更具体的错误信息
             if (window.leancloudOfflineMode) {
-                connectionStatus.textContent = 'LeanCloud SDK未成功加载，请使用离线模式';
-                connectionStatus.style.color = 'red';
                 loginBtn.disabled = true;
                 registerBtn.disabled = true;
                 return;
             }
             
-            // 检查LeanCloud是否已加载
+            // 检查LeanCloud SDK脚本本身是否已加载
             if (!window.leancloudLoaded || !window.AV) {
-                connectionStatus.textContent = 'LeanCloud SDK未成功加载，请使用离线模式';
+                connectionStatus.textContent = 'LeanCloud SDK脚本加载失败，请检查网络或刷新';
                 connectionStatus.style.color = 'red';
                 loginBtn.disabled = true;
                 registerBtn.disabled = true;
